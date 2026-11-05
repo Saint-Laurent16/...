@@ -322,7 +322,7 @@ function showView(view) {
 
 function storyCard(story, compact = false) {
   const meta = `<div class="story-card-meta"><span>◷ ${story.readTime}</span><span><b>3</b> SCENES</span></div>`;
-  return `<article class="story-card" data-story-card="${story.slug}"><div class="story-art art-${story.theme}"><span class="art-symbol">✦ · ✧</span><span class="art-emoji">${story.emoji}</span><span class="story-tag">${story.tag}</span><button class="qr-mini" data-qr-story="${story.slug}" title="Show story QR">▦</button></div><div class="story-card-body"><h3>${escapeHtml(story.title)}</h3><p>${escapeHtml(story.description)}</p>${meta}<div class="story-card-actions"><button class="story-open" data-open-story="${story.slug}">OPEN STORY ↗</button><button class="story-qr-action" data-qr-story="${story.slug}" aria-label="Show QR code">▦</button></div></div></article>`;
+  return `<article class="story-card" data-story-card="${story.slug}"><div class="story-art art-${story.theme}"><span class="art-symbol">✦ · ✧</span><span class="art-emoji">${story.emoji}</span><span class="story-tag">${story.tag}</span>${currentUser?.role === 'teacher' ? '<button class="qr-mini" data-qr-story="' + story.slug + '" title="Show story QR">▦</button>' : ''}</div><div class="story-card-body"><h3>${escapeHtml(story.title)}</h3><p>${escapeHtml(story.description)}</p>${meta}<div class="story-card-actions"><button class="story-open" data-open-story="${story.slug}">OPEN STORY ↗</button>${currentUser?.role === 'teacher' ? '<button class="story-qr-action" data-qr-story="' + story.slug + '" aria-label="Show QR code">▦</button>' : ''}</div></div></article>`;
 }
 function renderHome() {
   if (!currentUser) return;
@@ -668,6 +668,7 @@ function getStoryPayload(slug) {
   return `STORYVERSE:${slug}`;
 }
 function openQR(slug) {
+  if (currentUser?.role !== 'teacher') { toast('QR codes are available to teacher accounts only.', 'error'); return; }
   const story = getStory(slug); if (!story) return;
   activeQrSlug = slug;
   $('#qrStoryTitle').textContent = story.title; $('#qrPayload').textContent = getStoryPayload(slug); $('#qrCodeDisplay').innerHTML = '';
