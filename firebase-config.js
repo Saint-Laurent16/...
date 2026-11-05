@@ -1,5 +1,8 @@
-// Optional cloud sync configuration.
-// Copy your Firebase Web App config from Firebase Console > Project settings > Your apps.
-// Keep null to use local demo mode. This file is safe for public web hosting; do not put
-// service-account keys or private server credentials here.
-export const firebaseConfig = null;
+export const firebaseConfig = {
+  apiKey: "AIzaSyC9eCpY5Eu_AXZElhMJCLeZmbsjZ-6LXXA",
+  authDomain: "storyverse-57dfc.firebaseapp.com",
+  projectId: "storyverse-57dfc",
+  storageBucket: "storyverse-57dfc.firebasestorage.app",
+  messagingSenderId: "948127260871",
+  appId: "1:948127260871:web:214ade7856e91f6a93dee2"
+};
