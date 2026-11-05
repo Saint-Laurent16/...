@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function hasRole(role) {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    function isClassOwner(code) {
+      return hasRole('teacher')
+        && get(/databases/$(database)/documents/classes/$(code)).data.teacherUid == request.auth.uid;
+    }
+    function isClassMember(code) {
+      return hasRole('student')
+        && request.auth.uid in get(/databases/$(database)/documents/classes/$(code)).data.studentUids;
+    }
+
+    match /users/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role in ['teacher', 'student'];
+      allow get, delete: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.username == resource.data.username;
+      allow list: if false;
+    }
+
+    // Invite lookup is by a high-entropy 8-character code. Only signed-in users
+    // can resolve a code, and the class roster itself is not exposed here.
+    match /joinCodes/{code} {
+      allow create: if hasRole('teacher')
+        && request.resource.data.code == code
+        && request.resource.data.teacherUid == request.auth.uid;
+      allow get: if signedIn();
+      allow list: if false;
+      allow update, delete: if hasRole('teacher') && resource.data.teacherUid == request.auth.uid;
+    }
+
+    match /classes/{code} {
+      allow create: if hasRole('teacher')
+        && request.resource.data.code == code
+        && request.resource.data.teacherUid == request.auth.uid
+        && request.resource.data.studentUids.size() == 0;
+      allow get: if signedIn() && (resource.data.teacherUid == request.auth.uid || request.auth.uid in resource.data.studentUids);
+      allow list: if signedIn() && resource.data.teacherUid == request.auth.uid;
+      allow update: if signedIn() && (
+        resource.data.teacherUid == request.auth.uid
+        || (
+          hasRole('student')
+          && !(request.auth.uid in resource.data.studentUids)
+          && request.auth.uid in request.resource.data.studentUids
+          && request.resource.data.studentUids.size() == resource.data.studentUids.size() + 1
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['studentUids'])
+          && request.resource.data.studentUids.hasAll(resource.data.studentUids)
+        )
+      );
+      allow delete: if signedIn() && resource.data.teacherUid == request.auth.uid;
+
+      match /students/{studentUid} {
+        allow get, list: if signedIn() && (
+          request.auth.uid == studentUid
+          || isClassOwner(code)
+        );
+        allow create, update: if signedIn() && (
+          (request.auth.uid == studentUid && isClassMember(code))
+          || isClassOwner(code)
+        );
+        allow delete: if signedIn() && (request.auth.uid == studentUid || isClassOwner(code));
+      }
+    }
+  }
+}

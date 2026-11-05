@@ -1,0 +1,14 @@
+{
+  "name": "STORYVERSE — Augmented Reality Storybooks",
+  "short_name": "STORYVERSE",
+  "description": "Read, listen, explore and understand original interactive stories.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0c1023",
+  "theme_color": "#10152d",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "./icon-192.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "./icon-512.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
