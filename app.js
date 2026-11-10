@@ -535,7 +535,8 @@ async function openStory(slug) {
   const story = getStory(slug); if (!story) { toast('That story portal could not be found.', 'error'); return; }
   activeStory = story; activeScene = 0; storyFontSize = 14;
   showModal('storyModal'); await updateSceneUI();
-  const arSupported = await checkARSupport(); $('#arButton').classList.toggle('hidden', !arSupported);
+  $('#arButton').classList.remove('hidden');
+  $('#arButton').textContent = '◎ VIEW IN YOUR ROOM';
 }
 function nextScene() {
   if (!activeStory) return;
@@ -544,7 +545,7 @@ function nextScene() {
   else { stopNarration(); stopAmbient(); hideModal('storyModal'); beginQuiz(activeStory); }
 }
 function previousScene() { if (activeScene > 0) { activeScene--; updateSceneUI(); } }
-function exitStory() { stopNarration(); stopAmbient(); hideModal('storyModal'); closeStoryEngine(); renderHome(); }
+function exitStory() { stopNarration(); stopAmbient(); closeARViewer(); hideModal('storyModal'); closeStoryEngine(); renderHome(); }
 
 function beginQuiz(story) {
   quizIndex = 0; quizAnswers = Array(story.quiz.length).fill(null); quizChecked = false;
@@ -966,31 +967,39 @@ function attachSceneControls(engine) {
   });
   canvas.addEventListener('pointercancel',()=>down=null);
 }
-async function checkARSupport() {
-  if (!navigator.xr || !sceneEngine?.renderer) return false;
-  try { return await navigator.xr.isSessionSupported('immersive-ar'); } catch { return false; }
-}
-async function launchAR() {
-  if (!navigator.xr || !sceneEngine?.renderer) { toast('Immersive AR is not supported here. The interactive 3D story remains available.', 'error'); return; }
-  try {
-    const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local'], optionalFeatures: ['dom-overlay'], domOverlay: { root: document.body } });
-    sceneEngine.savedBackground = sceneEngine.scene.background; sceneEngine.savedFog = sceneEngine.scene.fog;
-    sceneEngine.scene.background = null; sceneEngine.scene.fog = null;
-    sceneEngine.mainGroup.visible = true; sceneEngine.mainGroup.position.set(0, -.55, -1.55); sceneEngine.mainGroup.scale.setScalar(.2);
-    sceneEngine.xrGroup.visible = false; sceneEngine.arActive = true;
-    await sceneEngine.renderer.xr.setSession(session);
-    $('#xrStatus').textContent = 'AR SESSION'; $('#arButton').textContent = '◎ EXIT AR';
-    session.addEventListener('end', () => {
-      if (!sceneEngine) return;
-      sceneEngine.mainGroup.visible = true; sceneEngine.mainGroup.position.set(0,0,0); sceneEngine.mainGroup.scale.setScalar(1);
-      sceneEngine.scene.background = sceneEngine.savedBackground; sceneEngine.scene.fog = sceneEngine.savedFog;
-      sceneEngine.xrGroup.visible = false; sceneEngine.arActive = false;
-      $('#xrStatus').textContent = '3D VIEW'; $('#arButton').textContent = '◎ TRY AR';
-    }, { once:true });
-    toast('AR started. Move your phone gently to explore.');
-  } catch (err) {
-    toast(`AR could not start: ${err.message}. Use the 3D scene instead.`, 'error');
+function closeARViewer() {
+  const viewer = $('#storyARModel');
+  if (viewer) {
+    try { viewer.pause?.(); } catch {}
+    viewer.removeAttribute('src');
   }
+  hideModal('arViewerModal');
+  if ($('#arViewerStatus')) $('#arViewerStatus').textContent = 'Loading the 3D story world…';
+}
+
+async function launchAR() {
+  if (!activeStory) return;
+  const viewer = $('#storyARModel');
+  if (!viewer) { toast('The AR viewer is not available in this page.', 'error'); return; }
+  if (!customElements.get('model-viewer')) {
+    toast('The AR viewer is still loading. Check your internet connection and try again.', 'error');
+    return;
+  }
+
+  const modelPath = `./assets/ar/${activeStory.slug}.glb`;
+  $('#arViewerTitle').textContent = activeStory.title;
+  $('#arViewerDescription').textContent = `${activeStory.description} Explore the story diorama, then place it in your space.`;
+  $('#arViewerStatus').textContent = 'Loading the 3D story world…';
+  viewer.setAttribute('alt', `3D augmented reality diorama for ${activeStory.title}`);
+  viewer.addEventListener('load', () => {
+    $('#arViewerStatus').textContent = '3D story ready. If AR is supported, tap the AR button to place it in your space.';
+  }, { once: true });
+  viewer.addEventListener('error', () => {
+    $('#arViewerStatus').textContent = 'The 3D model could not load. Check your connection and try again.';
+    toast('The AR story model could not load.', 'error');
+  }, { once: true });
+  showModal('arViewerModal');
+  viewer.setAttribute('src', new URL(modelPath, document.baseURI).href);
 }
 
 function bindEvents() {
@@ -1019,7 +1028,7 @@ function bindEvents() {
   $('#fontDown').addEventListener('click', () => { storyFontSize = Math.max(12, storyFontSize - 1); $('#sceneText').style.fontSize = `${storyFontSize}px`; });
   $('#fontUp').addEventListener('click', () => { storyFontSize = Math.min(19, storyFontSize + 1); $('#sceneText').style.fontSize = `${storyFontSize}px`; });
   $('#objectInfoClose').addEventListener('click', () => $('#objectInfo').classList.add('hidden'));
-  $('#arButton').addEventListener('click', () => { if (sceneEngine?.arActive) sceneEngine.renderer.xr.getSession()?.end(); else launchAR(); });
+  $('#arButton').addEventListener('click', launchAR);
   $('#quizNext').addEventListener('click', handleQuizNext);
   $('#quizBack').addEventListener('click', handleQuizBack);
   $('#storySearch').addEventListener('input', renderExplore);
@@ -1063,7 +1072,7 @@ function bindEvents() {
     const quizDone = event.target.closest('#quizDoneButton');
     if (quizDone) { hideModal('quizModal'); showView('progress'); activeStory = null; closeStoryEngine(); return; }
     const close = event.target.closest('[data-close]');
-    if (close) { const id = close.dataset.close; if (id === 'scanModal') stopScanner(); if (id === 'storyModal') exitStory(); else hideModal(id); return; }
+    if (close) { const id = close.dataset.close; if (id === 'scanModal') stopScanner(); if (id === 'storyModal') exitStory(); else if (id === 'arViewerModal') closeARViewer(); else hideModal(id); return; }
   });
   document.addEventListener('click', async event => {
     if (event.target.closest('#saveProfileButton')) { await saveProfileEdits(); return; }
@@ -1074,6 +1083,7 @@ function bindEvents() {
     if (event.target === layer) {
       if (layer.id === 'scanModal') stopScanner();
       if (layer.id === 'storyModal') exitStory();
+      else if (layer.id === 'arViewerModal') closeARViewer();
       else hideModal(layer.id);
     }
   }));
@@ -1081,7 +1091,7 @@ function bindEvents() {
     if (event.key === 'Escape') {
       if (!$('#scanModal').classList.contains('hidden')) { stopScanner(); hideModal('scanModal'); }
       else if (!$('#storyModal').classList.contains('hidden')) exitStory();
-      else $$('.modal-layer').forEach(el => el.classList.add('hidden'));
+      else { closeARViewer(); $$('.modal-layer').forEach(el => el.classList.add('hidden')); }
     }
   });
 }

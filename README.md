@@ -6,9 +6,9 @@ A mobile-first, responsive reading adventure for Grade 7–9 students. The proje
 
 - Separate Student and Teacher registration/login tabs. Accounts use a username and password; no Google account or real email address is requested.
 - Three original stories, each with three manually navigated scenes and six comprehension questions.
-- Story-specific QR codes, QR downloads, camera scanning, and a manual story-code fallback.
-- Interactive Three.js story environments with animated characters, discoverable objects, and an immersive WebXR AR mode when the browser/device supports it.
-- A non-immersive 3D fallback for devices without WebXR.
+- Story-specific QR codes, QR downloads, camera scanning, and a manual story-code fallback. QR links still open the selected story; students then tap **VIEW IN YOUR ROOM** to launch native AR.
+- Interactive Three.js story environments with animated characters and discoverable objects, plus story-specific 3D AR dioramas that launch in Android Scene Viewer or iPhone AR Quick Look through Google model-viewer.
+- An interactive 3D model-viewer fallback for desktop and phones that do not support native AR.
 - Browser read-aloud narration, word pronunciation, adjustable reading text, and soft generated ambient soundscapes / scene cues.
 - Student progress dashboard, quiz history, XP, achievements, avatar unlocks, profile colors, and score-privacy preference.
 - Teacher classrooms with private 8-character codes, student rosters, completed scenes/stories, average quiz scores, quiz history, and score change versus the previous quiz attempt.
@@ -68,11 +68,15 @@ The Firebase web config is intended to be included in a public frontend. **Never
 
 You can edit the website directly in GitHub by opening a file and selecting the pencil icon, or edit the files in VS Code and upload the changes. Keep `index.html`, `styles.css`, `app.js`, `firebase-config.js`, `manifest.json`, and `sw.js` together in the same folder.
 
+## Update an existing Cloudflare Pages deployment
+
+If this repository is already connected to Cloudflare Pages, replace `index.html`, `app.js`, `styles.css`, `sw.js`, and `README.md` with this update, then add the `assets/ar/` folder and its three `.glb` files. Keep your existing `firebase-config.js` and `firestore.rules`. Commit the changes to the connected branch; Cloudflare Pages should redeploy automatically. Existing STORYVERSE QR links do not need to be reprinted.
+
 ## Important device notes
 
 - Camera scanning works only on HTTPS or localhost and requires camera permission. The native `BarcodeDetector` API is used when available; a `jsQR` fallback is included, along with manual story-code entry.
-- Immersive AR depends on browser support for WebXR `immersive-ar`. Support is not universal, especially on iPhones and some mobile browsers. Those devices still get the interactive 3D scene, object clues, reading text, and audio controls.
-- The story worlds are custom stylized 3D scenes, not photorealistic scans or high-polygon film assets. This keeps the app lightweight for student phones.
+- The AR button uses Google `<model-viewer>` with Android Scene Viewer, iPhone Safari AR Quick Look, and WebXR as available modes. The iPhone Quick Look USDZ is generated from the GLB at launch when an `ios-src` is not supplied. Android AR requires an ARCore-compatible phone and the required Google AR services; iPhone AR requires a supported iPhone/iOS version and Safari. All camera-based AR requires HTTPS. Devices without AR support can still rotate and inspect the 3D model in the page.
+- The reading experience uses custom stylized Three.js scenes. The AR viewer uses three lightweight, story-specific GLB dioramas in `assets/ar/`; they are miniature story illustrations rather than photorealistic scans or animated film assets. This keeps the app manageable for student phones.
 - Narration and pronunciation use the device/browser's speech synthesis voice. Ambient effects are generated in the browser (soft waves/wind-like noise and gentle scene cues); they are not recorded animal sound files.
 - Three.js, Firebase (when enabled), QR generation, QR decoding, and fonts load from CDNs, so the first visit needs internet access. The service worker caches the app shell, not all third-party libraries.
 - Local Demo is not suitable for a real multi-device research deployment. Connect Firebase and test teacher/student accounts, privacy settings, class membership, and permissions before collecting research data.
@@ -81,7 +85,7 @@ You can edit the website directly in GitHub by opening a file and selecting the 
 ## Customizing the content
 
 - Edit the `STORIES` array near the top of `app.js` to revise scenes, object clues, questions, and answer explanations.
-- Each story must keep a unique `slug`, exactly three scene objects, and a quiz array.
+- Each story must keep a unique `slug`, exactly three scene objects, and a quiz array. The matching AR model uses the same slug as its `.glb` filename in `assets/ar/`.
 - Update `AVATARS`, `PALETTES`, and `ACHIEVEMENTS` in `app.js` to add more profile rewards.
 - Change the colors, layout, typography, and responsive behavior in `styles.css`.
 - Edit page sections and navigation in `index.html`.
