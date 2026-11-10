@@ -16,7 +16,7 @@ A mobile-first, responsive reading adventure for Grade 7–9 students. The proje
 
 ## Run it locally
 
-Camera access and WebXR require a secure context. Use `localhost` rather than opening `index.html` by double-clicking it.
+Camera-based QR scanning requires a secure context. Native camera AR also requires the published HTTPS site and a compatible phone. Use `localhost` rather than opening `index.html` by double-clicking it.
 
 1. Unzip the project.
 2. Open a terminal in this folder.
@@ -70,13 +70,13 @@ You can edit the website directly in GitHub by opening a file and selecting the 
 
 ## Update an existing Cloudflare Pages deployment
 
-If this repository is already connected to Cloudflare Pages, replace `index.html`, `app.js`, `styles.css`, `sw.js`, and `README.md` with this update, then add the `assets/ar/` folder and its three `.glb` files. Keep your existing `firebase-config.js` and `firestore.rules`. Commit the changes to the connected branch; Cloudflare Pages should redeploy automatically. Existing STORYVERSE QR links do not need to be reprinted.
+If this repository is already connected to Cloudflare Pages, replace `index.html`, `app.js`, `styles.css`, `sw.js`, and `README.md` with this update, then add the `assets/ar/` folder and all nine scene-specific `.glb` files. Keep your existing `firebase-config.js` and `firestore.rules`. Commit the changes to the connected branch; Cloudflare Pages should redeploy automatically. Existing STORYVERSE QR links do not need to be reprinted.
 
 ## Important device notes
 
 - Camera scanning works only on HTTPS or localhost and requires camera permission. The native `BarcodeDetector` API is used when available; a `jsQR` fallback is included, along with manual story-code entry.
-- The AR button uses Google `<model-viewer>` with Android Scene Viewer, iPhone Safari AR Quick Look, and WebXR as available modes. The iPhone Quick Look USDZ is generated from the GLB at launch when an `ios-src` is not supplied. Android AR requires an ARCore-compatible phone and the required Google AR services; iPhone AR requires a supported iPhone/iOS version and Safari. All camera-based AR requires HTTPS. Devices without AR support can still rotate and inspect the 3D model in the page.
-- The reading experience uses custom stylized Three.js scenes. The AR viewer uses three lightweight, story-specific GLB dioramas in `assets/ar/`; they are miniature story illustrations rather than photorealistic scans or animated film assets. This keeps the app manageable for student phones.
+- The story-page **VIEW IN YOUR ROOM** button calls Google `<model-viewer>`’s `activateAR()` method directly from the tap. On supported iPhones it opens Apple AR Quick Look; on compatible Android phones it opens Google Scene Viewer. Quick Look USDZ is generated from the active scene GLB when an `ios-src` is not supplied. Android AR requires an ARCore-compatible phone and Google Play Services for AR; iPhone AR requires a compatible iPhone/iOS version and Safari. HTTPS is required. Devices without AR support can still inspect the 3D scene on the story page.
+- The reading experience uses nine distinct, scene-specific Three.js environments. The AR viewer also uses nine lightweight GLB dioramas in `assets/ar/`, one for every reading scene; each is a miniature story illustration rather than a photorealistic scan or animated film asset.
 - Narration and pronunciation use the device/browser's speech synthesis voice. Ambient effects are generated in the browser (soft waves/wind-like noise and gentle scene cues); they are not recorded animal sound files.
 - Three.js, Firebase (when enabled), QR generation, QR decoding, and fonts load from CDNs, so the first visit needs internet access. The service worker caches the app shell, not all third-party libraries.
 - Local Demo is not suitable for a real multi-device research deployment. Connect Firebase and test teacher/student accounts, privacy settings, class membership, and permissions before collecting research data.
@@ -85,7 +85,7 @@ If this repository is already connected to Cloudflare Pages, replace `index.html
 ## Customizing the content
 
 - Edit the `STORIES` array near the top of `app.js` to revise scenes, object clues, questions, and answer explanations.
-- Each story must keep a unique `slug`, exactly three scene objects, and a quiz array. The matching AR model uses the same slug as its `.glb` filename in `assets/ar/`.
+- Each story must keep a unique `slug`, exactly three scene objects, and a quiz array. Each scene has a matching AR model named `<slug>-scene-1.glb`, `<slug>-scene-2.glb`, or `<slug>-scene-3.glb` in `assets/ar/`.
 - Update `AVATARS`, `PALETTES`, and `ACHIEVEMENTS` in `app.js` to add more profile rewards.
 - Change the colors, layout, typography, and responsive behavior in `styles.css`.
 - Edit page sections and navigation in `index.html`.

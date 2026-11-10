@@ -149,11 +149,11 @@
         <button class="icon-button" data-close="arViewerModal" aria-label="Close AR viewer">×</button>
       </div>
       <model-viewer id="storyARModel" class="story-ar-model" ar ar-modes="scene-viewer quick-look webxr" ar-placement="floor" ar-scale="auto" camera-controls touch-action="pan-y" auto-rotate shadow-intensity="1.1" exposure="1.05" loading="eager" reveal="auto" alt="A 3D STORYVERSE story diorama">
-        <button slot="ar-button" class="model-ar-button">◎ PLACE STORY IN YOUR ROOM</button>
+        <button slot="ar-button" class="model-ar-button" tabindex="-1" aria-hidden="true" style="display:none">◎ PLACE STORY IN YOUR ROOM</button>
         <div slot="progress-bar" class="model-progress"><span></span></div>
       </model-viewer>
-      <div class="ar-viewer-foot"><span id="arViewerStatus">Loading the 3D story world…</span><span>✦ Rotate to explore · Tap the AR button to place it</span></div>
-      <p class="ar-compat-note">On supported iPhones, AR opens in Safari Quick Look. On supported Android phones, it opens in Google Scene Viewer. Camera placement requires a compatible device and HTTPS.</p>
+      <div class="ar-viewer-foot"><span id="arViewerStatus">Preparing the 3D story world…</span><span>✦ Rotate this scene to explore it</span></div>
+      <p class="ar-compat-note">On supported iPhones, the button opens Apple AR Quick Look. On compatible Android phones, it opens Google Scene Viewer. The phone’s AR viewer uses the camera to place the current story scene in the real world. HTTPS is required.</p>
     </div>
   </div>
 
