@@ -1,16 +1,5 @@
-const CACHE_NAME = 'storyverse-shell-v4-scenes-ar';
-const AR_MODELS = [
-  './assets/ar/lanterns-of-luntian-bay-scene-1.glb',
-  './assets/ar/lanterns-of-luntian-bay-scene-2.glb',
-  './assets/ar/lanterns-of-luntian-bay-scene-3.glb',
-  './assets/ar/the-clockmakers-garden-scene-1.glb',
-  './assets/ar/the-clockmakers-garden-scene-2.glb',
-  './assets/ar/the-clockmakers-garden-scene-3.glb',
-  './assets/ar/the-map-beneath-the-mangroves-scene-1.glb',
-  './assets/ar/the-map-beneath-the-mangroves-scene-2.glb',
-  './assets/ar/the-map-beneath-the-mangroves-scene-3.glb'
-];
-const APP_SHELL = ['./', './index.html', './styles.css', './app.js', './firebase-config.js', './manifest.json', './icon-192.svg', './icon-512.svg', ...AR_MODELS];
+const CACHE_NAME = 'storyverse-shell-v3-live-camera-ar';
+const APP_SHELL = ['./', './index.html', './styles.css', './app.js', './firebase-config.js', './manifest.json', './icon-192.svg', './icon-512.svg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).catch(() => {}));
   self.skipWaiting();

@@ -9,7 +9,6 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%237c6cff'/%3E%3Cpath d='M18 29q17-10 32 2v46Q34 65 18 77zm64 0q-17-10-32 2v46q16-12 32 0z' fill='white'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://ajax.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
@@ -103,7 +102,7 @@
         <div class="how-grid">
           <article class="how-card"><span class="how-number">01</span><div class="how-icon">▤</div><h3>Choose a story</h3><p>Browse the library or scan a story’s unique QR code to open its world.</p><span class="how-tip">TIP · Each story has 3 scenes</span></article>
           <article class="how-card"><span class="how-number">02</span><div class="how-icon">♫</div><h3>Read & listen</h3><p>Follow the story text, play narration, adjust the text size, or hear a word pronounced.</p><span class="how-tip">TIP · Read at your own pace</span></article>
-          <article class="how-card"><span class="how-number">03</span><div class="how-icon">◎</div><h3>Explore the scene</h3><p>Drag the 3D world, tap glowing objects for clues, and try immersive AR on supported phones.</p><span class="how-tip">TIP · Camera access needs HTTPS</span></article>
+          <article class="how-card"><span class="how-number">03</span><div class="how-icon">◎</div><h3>Explore the scene</h3><p>Open the live camera story, explore its 3D world, and move to the next scene without leaving AR.</p><span class="how-tip">TIP · Allow camera access when prompted</span></article>
           <article class="how-card"><span class="how-number">04</span><div class="how-icon">✦</div><h3>Show what you know</h3><p>Complete all three scenes, take the comprehension quiz, and watch your progress grow.</p><span class="how-tip">TIP · Earn XP & profile rewards</span></article>
         </div>
         <div class="scan-banner"><div class="scan-banner-icon">🔒</div><div><b>Your camera stays yours.</b><p>The scanner reads QR codes in your browser; STORYVERSE does not record or upload camera video.</p></div><button class="button button-primary" data-action="scan">Try the scanner ↗</button></div>
@@ -135,25 +134,10 @@
     <div class="story-experience modal-panel">
       <div class="experience-topbar"><button class="icon-button close-modal" data-close="storyModal" aria-label="Close story">←</button><div class="experience-title"><span class="eyebrow">STORYVERSE ORIGINAL</span><b id="experienceStoryTitle">Story title</b></div><div class="scene-counter" id="sceneCounter">SCENE 1 / 3</div></div>
       <div class="experience-layout">
-        <div class="scene-stage-wrap"><div id="sceneStage" class="scene-stage"><div class="scene-stage-loading">Building your world <span>✦</span></div><div class="stage-overlay-top"><span class="stage-badge"><i></i> 3D STORY WORLD</span><button id="arButton" class="ar-button hidden">◎ VIEW IN YOUR ROOM</button></div><div class="stage-hint" id="stageHint">Tap a glowing object to discover a clue</div><div id="objectInfo" class="object-info hidden"><button id="objectInfoClose" aria-label="Close clue">×</button><span>DISCOVERY</span><b id="objectInfoTitle"></b><p id="objectInfoText"></p></div></div><div class="stage-controls"><span>✥ DRAG TO LOOK AROUND</span><span>✦ TAP OBJECTS TO EXPLORE</span><span id="xrStatus">3D VIEW</span></div></div>
+        <div class="scene-stage-wrap"><div id="sceneStage" class="scene-stage"><video id="arCamera" class="ar-camera" autoplay muted playsinline aria-hidden="true"></video><div class="scene-stage-loading">Building your world <span>✦</span></div><div class="stage-overlay-top"><span class="stage-badge"><i></i> LIVE CAMERA AR</span><button id="arButton" class="ar-button">◎ START LIVE AR</button></div><div class="stage-hint" id="stageHint">Tap a glowing object to discover a clue</div><div id="objectInfo" class="object-info hidden"><button id="objectInfoClose" aria-label="Close clue">×</button><span>DISCOVERY</span><b id="objectInfoTitle"></b><p id="objectInfoText"></p></div></div><div class="stage-controls"><span>✥ DRAG TO LOOK AROUND</span><span>✦ TAP OBJECTS TO EXPLORE</span><span id="xrStatus">3D VIEW</span></div></div>
         <div class="reading-panel"><div class="reading-panel-head"><div><span class="section-kicker">THE STORY</span><h2 id="sceneHeading">A light in the distance</h2></div><div class="scene-dots" id="sceneDots"><i class="active"></i><i></i><i></i></div></div><div class="scene-meta" id="sceneMeta">SCENE 1 · THE BEGINNING</div><div class="story-text" id="sceneText"></div><div class="audio-panel"><div class="audio-icon">♫</div><div class="audio-copy"><b>Listen to the story</b><small id="audioStatus">Narration ready · ambient sounds off</small></div><button class="audio-control" id="narrateButton" title="Read aloud">▶</button><button class="audio-control secondary-audio" id="ambientButton" title="Toggle ambient sound">♫</button></div><div class="reading-tools"><button id="pronounceButton" class="tool-button">◉ <span>Pronounce a word</span></button><button id="fontDown" class="tool-button" aria-label="Smaller text">A−</button><button id="fontUp" class="tool-button" aria-label="Larger text">A+</button></div><div class="pronounce-row hidden" id="pronounceRow"><input id="pronounceInput" placeholder="Type a word to hear it…" /><button id="pronounceGo">Listen</button></div><div class="scene-progress"><div class="scene-progress-copy"><span>YOUR READING JOURNEY</span><b id="sceneProgressLabel">1 of 3 scenes</b></div><div class="scene-progress-track"><i id="sceneProgressFill" style="width:33.33%"></i></div></div><div class="experience-actions"><button id="previousScene" class="button button-muted" disabled>← Previous</button><button id="nextScene" class="button button-primary">NEXT SCENE <span>→</span></button></div></div>
       </div>
       <div class="experience-bottom"><span>✦ READ AT YOUR OWN PACE. THE NEXT SCENE WAITS FOR YOU.</span><button id="exitStory" class="text-button">Save & exit</button></div>
-    </div>
-  </div>
-
-  <div id="arViewerModal" class="modal-layer ar-viewer-layer hidden" role="dialog" aria-modal="true" aria-label="View story in augmented reality">
-    <div class="ar-viewer-panel modal-panel">
-      <div class="ar-viewer-heading">
-        <div><span class="eyebrow"><span class="eyebrow-dot"></span> STORYVERSE IN YOUR SPACE</span><h2 id="arViewerTitle">Story in AR</h2><p id="arViewerDescription">Place this 3D story world on a real floor or table.</p></div>
-        <button class="icon-button" data-close="arViewerModal" aria-label="Close AR viewer">×</button>
-      </div>
-      <model-viewer id="storyARModel" class="story-ar-model" ar ar-modes="scene-viewer quick-look webxr" ar-placement="floor" ar-scale="auto" camera-controls touch-action="pan-y" auto-rotate shadow-intensity="1.1" exposure="1.05" loading="eager" reveal="auto" alt="A 3D STORYVERSE story diorama">
-        <button slot="ar-button" class="model-ar-button" tabindex="-1" aria-hidden="true" style="display:none">◎ PLACE STORY IN YOUR ROOM</button>
-        <div slot="progress-bar" class="model-progress"><span></span></div>
-      </model-viewer>
-      <div class="ar-viewer-foot"><span id="arViewerStatus">Preparing the 3D story world…</span><span>✦ Rotate this scene to explore it</span></div>
-      <p class="ar-compat-note">On supported iPhones, the button opens Apple AR Quick Look. On compatible Android phones, it opens Google Scene Viewer. The phone’s AR viewer uses the camera to place the current story scene in the real world. HTTPS is required.</p>
     </div>
   </div>
 
@@ -161,7 +145,7 @@
 
   <div id="scanModal" class="modal-layer hidden" role="dialog" aria-modal="true" aria-label="Scan a story QR code"><div class="scan-panel modal-panel"><div class="modal-heading"><div><span class="eyebrow"><span class="eyebrow-dot"></span> OPEN A PORTAL</span><h2>Scan a story <em>QR.</em></h2><p>Point your phone camera at a STORYVERSE code.</p></div><button class="icon-button close-modal" data-close="scanModal">×</button></div><div class="scanner-frame"><video id="scannerVideo" playsinline muted></video><div class="scanner-placeholder" id="scannerPlaceholder"><div class="scanner-corners"><i></i><i></i><i></i><i></i><div class="scanner-cross">▦</div></div><b>Ready when you are</b><span>Your camera view appears here.</span></div><div class="scanner-line"></div></div><div class="scanner-controls"><button id="startScanButton" class="button button-primary">◎ Allow camera & scan</button><button id="stopScanButton" class="button button-muted hidden">Stop camera</button></div><div class="manual-code"><div><b>Camera not available?</b><small>Enter a story code or paste a STORYVERSE link.</small></div><div class="manual-code-input"><input id="manualStoryCode" placeholder="e.g. lanterns-of-luntian-bay" /><button id="openManualStory">Open</button></div></div><p class="privacy-note">Camera access is used only to read the QR code. This app does not record or upload camera video.</p></div></div>
 
-  <div id="qrModal" class="modal-layer hidden" role="dialog" aria-modal="true" aria-label="Story QR code"><div class="qr-panel modal-panel"><button class="icon-button close-modal qr-close" data-close="qrModal">×</button><div class="qr-heading"><span class="eyebrow">YOUR STORY PORTAL</span><h2 id="qrStoryTitle">Story QR code</h2><p>Scan this code to open the story, then tap <b>VIEW IN YOUR ROOM</b> to launch camera AR.</p></div><div id="qrCodeDisplay" class="qr-code-display"></div><div class="qr-payload" id="qrPayload"></div><button class="button button-primary button-wide" id="downloadQR">Download QR code <span>↓</span></button><p class="privacy-note">Each story has its own unique link. Existing STORYVERSE QR codes keep working.</p></div></div>
+  <div id="qrModal" class="modal-layer hidden" role="dialog" aria-modal="true" aria-label="Story QR code"><div class="qr-panel modal-panel"><button class="icon-button close-modal qr-close" data-close="qrModal">×</button><div class="qr-heading"><span class="eyebrow">YOUR STORY PORTAL</span><h2 id="qrStoryTitle">Story QR code</h2><p>Scan this code with a phone camera to open this story.</p></div><div id="qrCodeDisplay" class="qr-code-display"></div><div class="qr-payload" id="qrPayload"></div><button class="button button-primary button-wide" id="downloadQR">Download QR code <span>↓</span></button><p class="privacy-note">Each story has its own unique QR code.</p></div></div>
 
   <div id="classModal" class="modal-layer hidden" role="dialog" aria-modal="true" aria-label="Class details"><div class="class-modal modal-panel"><div class="modal-heading"><div><span class="eyebrow">YOUR LEARNING CIRCLE</span><h2 id="classModalTitle">Create a class</h2></div><button class="icon-button close-modal" data-close="classModal">×</button></div><form id="classForm"><label class="field-label" for="classNameInput">Class name</label><input id="classNameInput" placeholder="e.g. English Explorers - Grade 8" maxlength="48" required /><label class="field-label" for="classDescriptionInput">A little description <span>(optional)</span></label><textarea id="classDescriptionInput" placeholder="What will your class explore together?" maxlength="140"></textarea><button class="button button-primary button-wide" type="submit">Create private classroom <span>↗</span></button></form></div></div>
 
@@ -171,7 +155,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.4.0/model-viewer.min.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

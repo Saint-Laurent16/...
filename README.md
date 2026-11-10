@@ -6,9 +6,10 @@ A mobile-first, responsive reading adventure for Grade 7–9 students. The proje
 
 - Separate Student and Teacher registration/login tabs. Accounts use a username and password; no Google account or real email address is requested.
 - Three original stories, each with three manually navigated scenes and six comprehension questions.
-- Story-specific QR codes, QR downloads, camera scanning, and a manual story-code fallback. QR links still open the selected story; students then tap **VIEW IN YOUR ROOM** to launch native AR.
-- Interactive Three.js story environments with animated characters and discoverable objects, plus story-specific 3D AR dioramas that launch in Android Scene Viewer or iPhone AR Quick Look through Google model-viewer.
-- An interactive 3D model-viewer fallback for desktop and phones that do not support native AR.
+- Story-specific QR codes, QR downloads, camera scanning, and a manual story-code fallback.
+- Nine distinct Three.js environments (three different scenes for each story), with animated characters and discoverable objects.
+- Live camera AR overlay: opening a story requests the rear camera and renders its 3D scene over the real-world camera feed. The NEXT SCENE button changes the 3D environment while keeping the camera running. This works in modern mobile browsers that support secure camera access (HTTPS) and WebGL.
+- The current cross-browser camera mode is a camera-relative 3D overlay, not a tracked floor/table anchor. The 3D world appears over the live camera image and follows the screen view; precise world anchoring/hit-testing requires a dedicated AR tracking SDK or a supported native AR viewer.
 - Browser read-aloud narration, word pronunciation, adjustable reading text, and soft generated ambient soundscapes / scene cues.
 - Student progress dashboard, quiz history, XP, achievements, avatar unlocks, profile colors, and score-privacy preference.
 - Teacher classrooms with private 8-character codes, student rosters, completed scenes/stories, average quiz scores, quiz history, and score change versus the previous quiz attempt.
@@ -16,7 +17,7 @@ A mobile-first, responsive reading adventure for Grade 7–9 students. The proje
 
 ## Run it locally
 
-Camera-based QR scanning requires a secure context. Native camera AR also requires the published HTTPS site and a compatible phone. Use `localhost` rather than opening `index.html` by double-clicking it.
+Live camera AR requires a secure context (HTTPS, or `localhost` during development). The first time a story opens, allow the browser's camera permission. If the automatic prompt is blocked, tap **START LIVE AR** in the story scene.
 
 1. Unzip the project.
 2. Open a terminal in this folder.
@@ -68,15 +69,11 @@ The Firebase web config is intended to be included in a public frontend. **Never
 
 You can edit the website directly in GitHub by opening a file and selecting the pencil icon, or edit the files in VS Code and upload the changes. Keep `index.html`, `styles.css`, `app.js`, `firebase-config.js`, `manifest.json`, and `sw.js` together in the same folder.
 
-## Update an existing Cloudflare Pages deployment
-
-If this repository is already connected to Cloudflare Pages, replace `index.html`, `app.js`, `styles.css`, `sw.js`, and `README.md` with this update, then add the `assets/ar/` folder and all nine scene-specific `.glb` files. Keep your existing `firebase-config.js` and `firestore.rules`. Commit the changes to the connected branch; Cloudflare Pages should redeploy automatically. Existing STORYVERSE QR links do not need to be reprinted.
-
 ## Important device notes
 
 - Camera scanning works only on HTTPS or localhost and requires camera permission. The native `BarcodeDetector` API is used when available; a `jsQR` fallback is included, along with manual story-code entry.
-- The story-page **VIEW IN YOUR ROOM** button calls Google `<model-viewer>`’s `activateAR()` method directly from the tap. On supported iPhones it opens Apple AR Quick Look; on compatible Android phones it opens Google Scene Viewer. Quick Look USDZ is generated from the active scene GLB when an `ios-src` is not supplied. Android AR requires an ARCore-compatible phone and Google Play Services for AR; iPhone AR requires a compatible iPhone/iOS version and Safari. HTTPS is required. Devices without AR support can still inspect the 3D scene on the story page.
-- The reading experience uses nine distinct, scene-specific Three.js environments. The AR viewer also uses nine lightweight GLB dioramas in `assets/ar/`, one for every reading scene; each is a miniature story illustration rather than a photorealistic scan or animated film asset.
+- Live camera AR uses the phone camera as the background and draws the story-specific Three.js environment over it. It is a camera-relative overlay, not a persistent floor/table anchor; precise world tracking requires a dedicated AR target/tracking SDK or a supported native AR viewer.
+- The story worlds are custom stylized 3D scenes, not photorealistic scans or high-polygon film assets. This keeps the app lightweight for student phones.
 - Narration and pronunciation use the device/browser's speech synthesis voice. Ambient effects are generated in the browser (soft waves/wind-like noise and gentle scene cues); they are not recorded animal sound files.
 - Three.js, Firebase (when enabled), QR generation, QR decoding, and fonts load from CDNs, so the first visit needs internet access. The service worker caches the app shell, not all third-party libraries.
 - Local Demo is not suitable for a real multi-device research deployment. Connect Firebase and test teacher/student accounts, privacy settings, class membership, and permissions before collecting research data.
@@ -85,7 +82,7 @@ If this repository is already connected to Cloudflare Pages, replace `index.html
 ## Customizing the content
 
 - Edit the `STORIES` array near the top of `app.js` to revise scenes, object clues, questions, and answer explanations.
-- Each story must keep a unique `slug`, exactly three scene objects, and a quiz array. Each scene has a matching AR model named `<slug>-scene-1.glb`, `<slug>-scene-2.glb`, or `<slug>-scene-3.glb` in `assets/ar/`.
+- Each story must keep a unique `slug`, exactly three scene objects, and a quiz array.
 - Update `AVATARS`, `PALETTES`, and `ACHIEVEMENTS` in `app.js` to add more profile rewards.
 - Change the colors, layout, typography, and responsive behavior in `styles.css`.
 - Edit page sections and navigation in `index.html`.

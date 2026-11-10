@@ -146,6 +146,8 @@ let ambientContext = null;
 let ambientNodes = [];
 let ambientTimer = null;
 let sceneEngine = null;
+let cameraARStream = null;
+let cameraArActive = false;
 let cloud = null;
 let cloudMode = false;
 let pendingStoryFromUrl = null;
@@ -299,7 +301,7 @@ function enterApp() {
 function avatarEmoji(id) { return AVATARS.find(a => a.id === id)?.emoji || '✦'; }
 
 async function logout() {
-  stopNarration(); stopAmbient(); stopScanner(); closeStoryEngine();
+  stopNarration(); stopAmbient(); stopScanner(); stopCameraAR(); closeStoryEngine();
   if (cloudMode && cloud) await cloud.authFns.signOut(cloud.auth).catch(() => {});
   currentUser = null; localStorage.removeItem(STORAGE.session);
   $('#appShell').classList.add('hidden'); $('#authScreen').classList.remove('hidden');
@@ -525,7 +527,7 @@ function updateSceneUI() {
   $('#sceneProgressLabel').textContent = `${completedSceneCount} of ${story.scenes.length} scenes completed`;
   $('#sceneProgressFill').style.width = `${completedSceneCount / story.scenes.length * 100}%`;
   $('#previousScene').disabled = activeScene === 0;
-  $('#nextScene').innerHTML = activeScene === story.scenes.length - 1 ? 'FINISH & TAKE QUIZ <span>✦</span>' : 'NEXT SCENE <span>→</span>';
+  $('#nextScene').innerHTML = activeScene === story.scenes.length - 1 ? 'FINISH & TAKE QUIZ <span>✦</span>' : (cameraArActive ? 'NEXT AR SCENE <span>→</span>' : 'NEXT SCENE <span>→</span>');
   $('#objectInfo').classList.add('hidden');
   $('#audioStatus').textContent = `Narration ready · ${activeAmbient ? 'ambient sounds on' : 'ambient sounds off'}`;
   stopNarration();
@@ -535,28 +537,20 @@ async function openStory(slug) {
   const story = getStory(slug); if (!story) { toast('That story portal could not be found.', 'error'); return; }
   activeStory = story; activeScene = 0; storyFontSize = 14;
   showModal('storyModal');
-  $('#arButton').classList.remove('hidden');
-  prepareStoryAR(story, activeScene);
+  // A QR deep link opens the story and immediately requests the rear camera.
+  // Browsers may require a second tap after a denied/blocked request; the visible button is the fallback.
+  const cameraRequest = startCameraAR();
   await updateSceneUI();
-  $('#arButton').classList.remove('hidden');
+  await cameraRequest;
 }
 function nextScene() {
   if (!activeStory) return;
   markSceneComplete(activeStory, activeScene);
-  if (activeScene < activeStory.scenes.length - 1) {
-    activeScene++;
-    prepareStoryAR(activeStory, activeScene);
-    updateSceneUI();
-  } else { stopNarration(); stopAmbient(); hideModal('storyModal'); beginQuiz(activeStory); }
+  if (activeScene < activeStory.scenes.length - 1) { activeScene++; updateSceneUI(); }
+  else { stopNarration(); stopAmbient(); stopCameraAR(); hideModal('storyModal'); beginQuiz(activeStory); }
 }
-function previousScene() {
-  if (activeScene > 0) {
-    activeScene--;
-    prepareStoryAR(activeStory, activeScene);
-    updateSceneUI();
-  }
-}
-function exitStory() { stopNarration(); stopAmbient(); closeARViewer(); hideModal('storyModal'); closeStoryEngine(); renderHome(); }
+function previousScene() { if (activeScene > 0) { activeScene--; updateSceneUI(); } }
+function exitStory() { stopNarration(); stopAmbient(); stopCameraAR(); hideModal('storyModal'); closeStoryEngine(); renderHome(); }
 
 function beginQuiz(story) {
   quizIndex = 0; quizAnswers = Array(story.quiz.length).fill(null); quizChecked = false;
@@ -786,7 +780,7 @@ async function buildSceneWorld(story, sceneIndex) {
   const THREE = await ensureThree();
   if (!THREE) {
     $('#sceneStage .scene-stage-loading').innerHTML = '3D scene needs an internet connection <span>✦</span>';
-    $('#xrStatus').textContent = 'READING VIEW';
+    $('#xrStatus').textContent = cameraArActive ? 'LIVE CAMERA AR' : '3D PREVIEW';
     return;
   }
   try {
@@ -796,16 +790,19 @@ async function buildSceneWorld(story, sceneIndex) {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
-    const bgColors = { lantern: [0x142541,0x133b49,0x244858], clock: [0x30364b,0x272943,0x244c3d], sea: [0x17475e,0x0d3650,0x254e5c] };
-    const bgColor = (bgColors[story.theme] || bgColors.lantern)[sceneIndex] || bgColors.lantern[0];
-    scene.background = new THREE.Color(bgColor);
-    scene.fog = new THREE.FogExp2(bgColor, 0.035);
+    const bgColors = { lantern: 0x142541, clock: 0x222449, sea: 0x0d3650 };
+    const sceneBackgroundColor = bgColors[story.theme] ?? 0x17334a;
+    renderer.setClearColor(sceneBackgroundColor, cameraArActive ? 0 : 1);
+    scene.background = cameraArActive ? null : new THREE.Color(sceneBackgroundColor);
+    scene.fog = cameraArActive ? null : new THREE.FogExp2(sceneBackgroundColor, 0.035);
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
     camera.position.set(0, 2.05, 8.3); camera.lookAt(0, 1.3, 0);
     const ambient = new THREE.HemisphereLight(0xbccaff, 0x1a2542, 1.7); scene.add(ambient);
     const key = new THREE.DirectionalLight(0xffe8d4, 2.1); key.position.set(-3, 7, 5); scene.add(key);
     const rim = new THREE.PointLight(story.theme === 'sea' ? 0x4adce8 : story.theme === 'clock' ? 0xe7b86b : 0x8b86ff, 2.1, 13); rim.position.set(3, 2.8, -2); scene.add(rim);
     const mainGroup = new THREE.Group(); scene.add(mainGroup);
+    if (cameraArActive) { mainGroup.position.set(0, -.18, 0); mainGroup.scale.setScalar(.78); }
+    const xrGroup = new THREE.Group(); xrGroup.position.set(0, -0.15, -1.45); xrGroup.scale.setScalar(0.55); scene.add(xrGroup); xrGroup.visible = false;
     const interactive = []; const floaters = []; const disposables = [];
     const mat = (color, roughness = 0.72, metalness = 0.03, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, metalness, ...extra });
     function mesh(geo, material, parent = mainGroup, position = [0,0,0], scale = [1,1,1]) {
@@ -875,228 +872,166 @@ async function buildSceneWorld(story, sceneIndex) {
       floaters.push({ object: bubble, base: y, phase: Math.random()*5, mode: 'bubble' });
     }
 
-    addStarField();
-    function addMangrove(x,z,scale=1) {
-      const trunk = mesh(new THREE.CylinderGeometry(.09*scale,.14*scale,1.35*scale,8),mat(0x70523b),mainGroup,[x,.68*scale,z]);
-      const crown = mesh(new THREE.SphereGeometry(.55*scale,12,9),mat(0x397f68),mainGroup,[x,1.58*scale,z],[1,.62,.92]);
-      mesh(new THREE.SphereGeometry(.38*scale,10,8),mat(0x4a9c7b),mainGroup,[x+.24*scale,1.68*scale,z-.04]);
-      for(let i=0;i<4;i++) {
-        const dx = [-.38,-.14,.15,.38][i]*scale;
-        const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(x,.24,z),new THREE.Vector3(x+dx*.45,.16,z+.10*scale),new THREE.Vector3(x+dx,.035,z+.22*scale)]);
-        mesh(new THREE.TubeGeometry(curve,10,.035*scale,6,false),mat(0x80664a),mainGroup);
-      }
-      floaters.push({object:crown,base:crown.position.y,phase:Math.random()*4});
-      return discoverable(crown,'Mangrove canopy','Mangrove leaves slow strong winds while the tangled roots shelter young fish and help hold the shoreline in place.');
-    }
-    function addCloud(x,y,z,scale=1,color=0x4d5871) {
-      const group = new THREE.Group(); group.position.set(x,y,z); mainGroup.add(group);
-      for (const [dx,dy,dz,s] of [[0,0,0,.36],[-.25,-.04,0,.25],[.25,-.02,.02,.29],[.03,.12,-.02,.25]]) {
-        mesh(new THREE.SphereGeometry(s*scale,10,8),mat(color),group,[dx*scale,dy*scale,dz*scale]);
-      }
-      floaters.push({object:group,base:y,baseX:x,phase:Math.random()*4,mode:'cloud'});
-      return group;
-    }
-    function addBoat(x,z,scale=1) {
-      const hull = mesh(new THREE.BoxGeometry(1.05*scale,.25*scale,.42*scale),mat(0x855b42),mainGroup,[x,.28*scale,z]);
-      mesh(new THREE.ConeGeometry(.24*scale,.42*scale,4),mat(0x855b42),mainGroup,[x,.28*scale,z-.34*scale]);
-      mesh(new THREE.CylinderGeometry(.025*scale,.025*scale,.95*scale,8),mat(0x72583f),mainGroup,[x,.72*scale,z]);
-      mesh(new THREE.BoxGeometry(.38*scale,.48*scale,.035*scale),mat(0xf1e4c8),mainGroup,[x+.18*scale,.69*scale,z]);
-      return discoverable(hull,'Fishing boat','The boat needs a clear route back to the harbor. Safe markers and shore lights help its crew avoid shallow rocks.');
-    }
-    function addMarker(x,z,fallen=false) {
-      const group=new THREE.Group(); group.position.set(x,0,z); mainGroup.add(group);
-      const post=mesh(new THREE.CylinderGeometry(.055,.075,1.25,10),mat(0x98704b),group,[0,.63,0]);
-      const board=mesh(new THREE.BoxGeometry(.55,.24,.09),mat(0xe8d4a4),group,[0,1.05,0]);
-      mesh(new THREE.TorusGeometry(.17,.035,7,20),mat(0xd8ae65),group,[0,1.27,0]);
-      if(fallen){group.rotation.z=-.88;group.position.y=.05;}
-      return discoverable(board,fallen?'Fallen channel marker':'Restored channel marker',fallen?'The marker has fallen. Boats could mistake shallow rocks for the safe channel.':'The marker now stands upright and clearly shows boats where the deep channel begins.');
-    }
-    function addLanternSceneLight(x,z,blue=false) {
-      const group=new THREE.Group(); group.position.set(x,1.55,z); mainGroup.add(group);
-      const color=blue?0x69e7f2:0xffc06d;
-      const body=mesh(new THREE.SphereGeometry(.19,14,11),new THREE.MeshStandardMaterial({color,emissive:blue?0x1b9ba9:0x9d4c1a,emissiveIntensity:1.5,roughness:.35}),group,[0,0,0],[.82,1.18,.72]);
-      mesh(new THREE.TorusGeometry(.23,.025,6,18),mat(0xe2c48c),group,[0,.02,0]);
-      const light=new THREE.PointLight(color,blue?1.8:1.05,3.5); group.add(light);
-      floaters.push({object:group,base:1.55,phase:Math.random()*4,mode:'lantern'});
-      return discoverable(body,blue?'The blue signal':'Shore lantern',blue?'The blue light flashes as a signal asking for help.':'Warm shore lanterns guide boats toward the safe harbor.');
-    }
-    function addClockFace(x,y,z,stopped=true) {
-      const face=mesh(new THREE.CircleGeometry(.78,48),mat(0xf0dcae,.55),mainGroup,[x,y,z]);
-      mesh(new THREE.TorusGeometry(.82,.075,8,48),mat(0xb58b50,.35,.5),mainGroup,[x,y,z-.02]);
-      for(let i=0;i<12;i++) {
-        const a=i*Math.PI/6;
-        const tick=mesh(new THREE.BoxGeometry(.035,.14,.025),mat(0x554633),mainGroup,[x+Math.sin(a)*.63,y+Math.cos(a)*.63,z-.035]);
-        tick.rotation.z=-a;
-      }
-      const minute=mesh(new THREE.BoxGeometry(.045,.58,.035),mat(0x514338),mainGroup,[x,y+.27,z-.06]);
-      const hour=mesh(new THREE.BoxGeometry(.055,.42,.04),mat(0x514338),mainGroup,[x+.17,y-.04,z-.065]); hour.rotation.z=-.68;
-      if(!stopped) floaters.push({object:minute,base:0,phase:0,mode:'clockhand'});
-      discoverable(face,'The greenhouse clock',stopped?'The clock has stopped at the same minute as the flowers.':'The clock is moving again, a sign that the garden has found its rhythm.');
-      return face;
-    }
-    function addClockFlower(x,z,color,open=true) {
-      const stem=mesh(new THREE.CylinderGeometry(.035,.05,.8,7),mat(0x648c69),mainGroup,[x,.42,z]);
-      const center=mesh(new THREE.SphereGeometry(.13,12,10),mat(0xf7d47e,.5),mainGroup,[x,.92,z]);
-      for(let i=0;i<6;i++) {
-        const a=i*Math.PI/3;
-        const petal=mesh(new THREE.SphereGeometry(.17,10,8),mat(color),mainGroup,[x+Math.cos(a)*(open?.19:.10),.92+(open?Math.sin(a)*.10:-.05),z+Math.sin(a)*(open?.16:.05)],[1,.65,.75]);
-        if(!open) petal.rotation.z=a*.35;
-      }
-      floaters.push({object:center,base:.92,phase:Math.random()*5});
-      return discoverable(center,open?'A flower in bloom':'A closed clockwork flower',open?'The petals have opened because the garden’s melody has returned.':'The metal petals are folded shut while the garden waits for its missing melody.');
-    }
-    function addFish(x,y,z,color=0xf1b366) {
-      const fish=new THREE.Group(); fish.position.set(x,y,z); mainGroup.add(fish);
-      const body=mesh(new THREE.SphereGeometry(.16,12,8),mat(color),fish,[0,0,0],[1.35,.58,.55]);
-      const tail=mesh(new THREE.ConeGeometry(.10,.22,4),mat(color),fish,[.22,0,0]); tail.rotation.z=-Math.PI/2;
-      mesh(new THREE.SphereGeometry(.025,6,6),mat(0x243b42),fish,[-.12,.025,-.08]);
-      floaters.push({object:fish,base:y,baseX:x,phase:Math.random()*5,mode:'fish'});
-      return discoverable(body,'Young reef fish','Small fish use sheltered shallow water as a nursery while they grow.');
-    }
-    function addTurtle(x,y,z) {
-      const group=new THREE.Group(); group.position.set(x,y,z); mainGroup.add(group);
-      const shell=mesh(new THREE.SphereGeometry(.42,16,12),mat(0x4a9d79,.65),group,[0,0,0],[1.15,.56,1]);
-      mesh(new THREE.SphereGeometry(.19,12,9),mat(0x9bd19a),group,[.43,.03,-.02]);
-      for(let i=0;i<4;i++) mesh(new THREE.SphereGeometry(.16,10,8),mat(0x75b998),group,[(i<2?-1:1)*.34,-.14,(i%2?1:-1)*.30],[1,.45,.7]);
-      floaters.push({object:group,base:y,phase:2,mode:'character'});
-      return discoverable(shell,'The young sea turtle','The turtle’s presence is a clue that the sheltered inlet may be an important habitat.');
-    }
-    function addInfoSign(x,z,titleColor=0xe5d3a6) {
-      const post=mesh(new THREE.CylinderGeometry(.045,.055,.9,8),mat(0x79563b),mainGroup,[x,.47,z]);
-      const board=mesh(new THREE.BoxGeometry(.86,.48,.10),mat(0x9b7049),mainGroup,[x,.98,z]);
-      mesh(new THREE.BoxGeometry(.70,.32,.025),mat(titleColor),mainGroup,[x,.98,z-.06]);
-      return discoverable(board,'Community protection plan','The sign shares the community’s plan for caring for the inlet and keeping the nursery safe.');
-    }
+    // Nine deliberately different story environments. Each scene is built from its own
+    // shapes, props, palette, and characters rather than repeating one story backdrop.
+    const addBox = (w,h,d,color,parent=mainGroup,pos=[0,0,0],rough=.8) => mesh(new THREE.BoxGeometry(w,h,d), mat(color,rough), parent, pos);
+    const addCylinder = (rt,rb,h,color,parent=mainGroup,pos=[0,0,0],seg=16) => mesh(new THREE.CylinderGeometry(rt,rb,h,seg), mat(color), parent, pos);
+    const addRock = (x,y,z,s,color=0x52616e) => { const r=mesh(new THREE.DodecahedronGeometry(s,0),mat(color),mainGroup,[x,y,z],[1,.7,.9]); r.rotation.set(Math.random(),Math.random(),Math.random()); return r; };
+    const addDock = (x,z,length=4,color=0x9a7958) => {
+      addBox(length,.16,.58,color,mainGroup,[x,.08,z]);
+      for(let i=0;i<Math.ceil(length/.8);i++) addCylinder(.07,.09,.9,0x644b3a,mainGroup,[x-length/2+.35+i*.8,-.28,z],8);
+      for(let i=0;i<2;i++) addBox(length,.09,.1,0x6e503b,mainGroup,[x,.42,z+(i?-.24:.24)]);
+    };
+    const addBoat = (x,z,color=0x9b5c47) => {
+      const boat = new THREE.Group(); boat.position.set(x,0,z); mainGroup.add(boat);
+      const hull = mesh(new THREE.CylinderGeometry(.08,.25,1.5,3),mat(color),boat,[0,.38,0]); hull.rotation.z=Math.PI/2;
+      mesh(new THREE.BoxGeometry(.08,1.1,.05),mat(0x604a3e),boat,[0,1.0,0]);
+      const sail = mesh(new THREE.ConeGeometry(.55,1.0,3),mat(0xe9dfc8),boat,[.28,1.1,0]); sail.rotation.z=Math.PI/2;
+      return boat;
+    };
+    const addMangrove = (x,z,s=1) => {
+      addCylinder(.12*s,.2*s,1.65*s,0x765743,mainGroup,[x,.83*s,z],8);
+      const canopy=mesh(new THREE.SphereGeometry(.72*s,10,8),mat(0x397c69),mainGroup,[x,1.8*s,z],[1.25,.72,1]);
+      for(let k=0;k<4;k++){const root=addCylinder(.035*s,.09*s,1.0*s,0x88694c,mainGroup,[x+(k-1.5)*.28*s,.25*s,z+.35*s],6);root.rotation.z=(k-1.5)*.32;}
+      floaters.push({object:canopy,base:canopy.position.y,phase:Math.random()*4});
+      return canopy;
+    };
+    const addFish = (x,y,z,color=0xffc66e,s=1) => {
+      const f=new THREE.Group();f.position.set(x,y,z);mainGroup.add(f);
+      mesh(new THREE.SphereGeometry(.2*s,12,8),mat(color,.4),f,[0,0,0],[1.35,.65,.55]);
+      const tail=mesh(new THREE.ConeGeometry(.14*s,.28*s,3),mat(color),f,[-.29*s,0,0]);tail.rotation.z=-Math.PI/2;
+      mesh(new THREE.SphereGeometry(.035*s,8,8),mat(0x152b37),f,[.17*s,.045*s,.1*s]);
+      floaters.push({object:f,base:y,phase:Math.random()*4,mode:'bubble'}); return f;
+    };
+    const addGreenhouseFrame = () => {
+      const brass=0x9b8a70;
+      for(let x=-2.8;x<=2.81;x+=1.4){const pole=addCylinder(.045,.045,3.8,brass,mainGroup,[x,1.9,-1.4],8);}
+      for(let z=-2.8;z<=-.01;z+=1.4){addBox(5.7,.06,.06,brass,mainGroup,[0,3.7,z]);}
+      addBox(5.7,.06,.06,brass,mainGroup,[0,.1,-1.4]);
+      const roof=mesh(new THREE.BoxGeometry(5.8,.04,3.0),new THREE.MeshStandardMaterial({color:0x9bd8df,transparent:true,opacity:.15,roughness:.2}),mainGroup,[0,3.4,-1.4]);
+      disposables.push(roof.material);
+    };
 
-    if (story.theme === 'lantern') {
-      if (sceneIndex === 0) {
-        addGround(0x17283e);
-        const water=mesh(new THREE.CircleGeometry(4.5,48),mat(0x174e65,.38,.16),mainGroup,[0,-.025,-1]); water.rotation.x=-Math.PI/2; water.scale.set(1.2,.62,1);
-        for(let i=0;i<4;i++) addCloud(-3.4+i*2.1,3.0+(i%2)*.3,-3.5,.9,0x4a536d);
-        mesh(new THREE.BoxGeometry(1.35,.95,.75),mat(0x75533f),mainGroup,[-2.9,.48,1.3]);
-        const roof=mesh(new THREE.ConeGeometry(1.0,.62,4),mat(0x4c4051),mainGroup,[-2.9,1.17,1.3]); roof.rotation.y=Math.PI/4;
-        mesh(new THREE.BoxGeometry(.28,.32,.04),mat(0xf2bf78),mainGroup,[-2.9,.51,.89]);
-        for(let i=0;i<4;i++){const wave=mesh(new THREE.TorusGeometry(1.9+i*.42,.045,6,48),mat(0x337e92),mainGroup,[.8,.03,-1.7]);wave.rotation.x=-Math.PI/2;wave.scale.set(1,.48,1);}
-        addLanternSceneLight(-2.0,1.0,false); addLanternSceneLight(2.5,-1.5,true);
-        addTree(-4.1,-1.2,.72);
-        addCharacter(0x657ed6,0x342b56,[-.9,0,1.1]); addCharacter(0xe7a36d,0x4c3028,[.7,0,1.2]);
-      } else if (sceneIndex === 1) {
-        addGround(0x163c4b);
-        const pool=mesh(new THREE.CircleGeometry(4.6,48),mat(0x1a6571,.35,.15),mainGroup,[0,-.08,-.6]);pool.rotation.x=-Math.PI/2;pool.scale.set(1.2,.65,1);
-        addMangrove(-3.5,-1.9,.9); addMangrove(-1.5,-2.4,.78); addMangrove(1.2,-2.0,.94); addMangrove(3.5,-1.8,.8);
-        for(let i=0;i<6;i++) mesh(new THREE.BoxGeometry(.65,.07,.42),mat(0x80684c),mainGroup,[-3.0+i*1.0,.02,1.4+(i%2)*.35]);
-        addMarker(1.25,.35,true); addLanternSceneLight(-1.5,-.5,true);
-        const note=mesh(new THREE.BoxGeometry(.55,.62,.055),mat(0xf1dfb7),mainGroup,[-1.2,.86,.2]); note.rotation.z=-.12;
-        discoverable(note,'The hidden message','The note explains that the eastern channel marker has fallen, leaving boats without a safe guide.');
-        addCharacter(0x657ed6,0x342b56,[-.45,0,1.2]); addCharacter(0xe7a36d,0x4c3028,[.55,0,1.35]);
-      } else {
-        addGround(0x214a58);
-        const water=mesh(new THREE.CircleGeometry(4.6,48),mat(0x2b8092,.35,.15),mainGroup,[0,-.08,-.55]);water.rotation.x=-Math.PI/2;water.scale.set(1.2,.7,1);
-        for(let i=0;i<7;i++) mesh(new THREE.BoxGeometry(.95,.10,.55),mat(0x916845),mainGroup,[-3.1+i*1.0,.06,1.4]);
-        addMarker(2.25,-1.0,false); addBoat(-.45,-1.6,.92);
-        for(let i=0;i<7;i++) addLanternSceneLight(-3.2+i*1.0,.45-(i%2)*.24,false);
-        addCharacter(0x657ed6,0x342b56,[-.95,0,1.7]); addCharacter(0xe7a36d,0x4c3028,[.25,0,1.8]);
-        addCharacter(0x78a78b,0x463b38,[-2.1,0,1.9]); addCharacter(0xe4b66f,0x5b4538,[1.6,0,1.8]);
-        const sun=mesh(new THREE.SphereGeometry(.55,20,14),new THREE.MeshBasicMaterial({color:0xffc779}),mainGroup,[-3.3,2.9,-3.5]);
+    const isLantern = story.slug === 'lanterns-of-luntian-bay';
+    const isClock = story.slug === 'the-clockmakers-garden';
+    const isMap = story.slug === 'the-map-beneath-the-mangroves';
+
+    if (isLantern && sceneIndex === 0) {
+      // Scene 1: stormy shoreline, lighthouse, fishing boat, and the first blue signal.
+      addGround(0x293b50);
+      const sea=mesh(new THREE.CircleGeometry(4.5,48),mat(0x174b67,.28,.18),mainGroup,[0,-.07,-1.7]);sea.rotation.x=-Math.PI/2;sea.scale.set(1.25,.68,1);
+      addBox(7,.13,2.2,0x8b765f,mainGroup,[0,.02,2.15]);
+      for(let i=0;i<13;i++) addRock(-4.2+i*.7,.18,-.15+(i%3)*.42, .28+(i%2)*.12,0x53606b);
+      const tower=addCylinder(.42,.62,3.1,0xd9d2bd,mainGroup,[-2.8,1.55,-1.8],12);
+      addCylinder(.48,.48,.35,0x6f5150,mainGroup,[-2.8,3.2,-1.8],12);
+      const roof=mesh(new THREE.ConeGeometry(.53,.65,12),mat(0x9c5e4e),mainGroup,[-2.8,3.65,-1.8]);
+      const lamp=mesh(new THREE.SphereGeometry(.2,12,10),new THREE.MeshStandardMaterial({color:0xffd88a,emissive:0xffb34d,emissiveIntensity:2}),mainGroup,[-2.8,3.15,-1.8]);
+      addBoat(1.8,-1.5,0x9d684d); addLantern(-.2,1.2,true); addLantern(2.3,1.2,false);
+      addCharacter(0x657ed6,0x342b56,[-1.0,0,1.4]);
+      for(let i=0;i<7;i++){const rain=mesh(new THREE.BoxGeometry(.025,.38,.025),mat(0x9bc6dc,.3),mainGroup,[-3.4+i*1.1,2.4,-.3-(i%2)]);rain.rotation.z=.18;floaters.push({object:rain,base:2.4,phase:i*.7});}
+      discoverable(tower,'The storm lighthouse','The lighthouse marks the dangerous edge of the bay. Its warning lamp helps boats stay clear of the rocks.');
+      discoverable(lamp,'The first blue signal','The unusual blue light flashes from the water. Mira and Tomas must discover whether it is a call for help.');
+    } else if (isLantern && sceneIndex === 1) {
+      // Scene 2: narrow mangrove channel and a message lantern trapped among roots.
+      addGround(0x25463f);
+      const channel=mesh(new THREE.CircleGeometry(3.1,40),mat(0x14556a,.25,.12),mainGroup,[0,-.08,.2]);channel.rotation.x=-Math.PI/2;channel.scale.set(.72,1.65,1);
+      for(let i=0;i<7;i++){addMangrove(-3.7+i*1.2,-1.6-(i%2)*.45,.8+(i%3)*.12);}
+      for(let i=0;i<5;i++) addRock(-2.2+i*1.1,.16,1.55+(i%2)*.24,.25,0x6d7967);
+      addBox(.1,1.3,.1,0xb9a27a,mainGroup,[1.55,1.15,-.25]);
+      const note=addBox(.65,.42,.025,0xf0dfb4,mainGroup,[1.55,1.55,-.12]);note.rotation.z=-.12;
+      addLantern(1.55,0.1,true);
+      addCharacter(0x657ed6,0x342b56,[-1.2,0,1.1]);
+      discoverable(note,'The waterlogged message','The note explains that the eastern channel marker has fallen. The problem is not simply darkness: boats may enter shallow rocks.');
+    } else if (isLantern && sceneIndex === 2) {
+      // Scene 3: restored harbor, homes, raised channel marker, and a community of lights.
+      addGround(0x3e5261); addDock(0,1.45,6,0x98775a); addBoat(1.55,1.15,0xa65c43);
+      for(let i=0;i<4;i++){
+        const x=-3.2+i*2.1; addBox(1.2,1.0,.9,[0xc88b69,0xd6b67b,0x779e9a,0x9d8dbb][i],mainGroup,[x,.55,-2]);
+        const roof=mesh(new THREE.ConeGeometry(.95,.68,4),mat(0x674a4a),mainGroup,[x,1.38,-2]);roof.rotation.y=Math.PI/4;
+        addBox(.22,.45,.04,0x4b5964,mainGroup,[x,.36,-1.52]);
       }
-    } else if (story.theme === 'clock') {
-      if (sceneIndex === 0) {
-        addGround(0x33414a);
-        // greenhouse frame with dormant glass panels
-        for(let x=-3.6;x<=3.61;x+=1.8){
-          const curve=new THREE.CatmullRomCurve3([new THREE.Vector3(x,0,-1.7),new THREE.Vector3(x,2.7,-2.1),new THREE.Vector3(x,3.3,-.7),new THREE.Vector3(x,2.7,.5),new THREE.Vector3(x,0,.4)]);
-          mesh(new THREE.TubeGeometry(curve,22,.055,7,false),mat(0x819b98,.3,.5),mainGroup);
-        }
-        mesh(new THREE.BoxGeometry(7.1,.07,.08),mat(0x819b98),mainGroup,[0,3.25,-.7]);
-        addClockFace(0,2.25,-2.2,true);
-        for(let i=0;i<7;i++) addClockFlower(-3.2+i*1.05,1.1+(i%2)*.25,[0xd58db9,0xeabf6f,0x9bcfbe][i%3],false);
-        mesh(new THREE.CylinderGeometry(.7,.82,.22,32),mat(0x7b8584),mainGroup,[0,.13,1.65]);
-        mesh(new THREE.SphereGeometry(.18,12,10),mat(0x6f8f98),mainGroup,[0,.42,1.65]);
-        addCharacter(0x719d8a,0x2e3548,[-.85,0,1.6]);
-      } else if (sceneIndex === 1) {
-        addGround(0x3a3c57);
-        mesh(new THREE.CylinderGeometry(1.15,1.3,.26,40),mat(0x7d858d),mainGroup,[0,.16,.25]);
-        const box=mesh(new THREE.BoxGeometry(1.05,.56,.72),mat(0x986d43),mainGroup,[0,.58,.30]);
-        discoverable(box,'The music box','The music cylinder stores the tune as tiny raised pins. Its spring and melody are incomplete.');
-        const lid=mesh(new THREE.BoxGeometry(1.12,.12,.78),mat(0xb98a52),mainGroup,[0,.94,.14]); lid.rotation.x=-.52;
-        for(let i=0;i<5;i++){
-          const gear=mesh(new THREE.TorusGeometry(.55-i*.055,.09,8,32),mat([0xc69b58,0xa6a4bf,0xe0b96b][i%3],.35,.6),mainGroup,[Math.cos(i*1.25)*2.4,1.25+(i%2)*.8,-1.5]);
-          for(let j=0;j<8;j++) mesh(new THREE.BoxGeometry(.18,.22,.12),mat(0xc69b58,.35,.6),mainGroup,[gear.position.x+Math.cos(j*Math.PI/4)*(.55-i*.055),gear.position.y+Math.sin(j*Math.PI/4)*(.55-i*.055),-1.5]);
-          floaters.push({object:gear,mode:'gear',base:0,phase:i});
-        }
-        for(let i=0;i<5;i++){
-          const x=-2.6+i*1.25;
-          const note=mesh(new THREE.SphereGeometry(.12,10,8),mat(0xf1d27e),mainGroup,[x,2.8+(i%2)*.3,-.6]);
-          floaters.push({object:note,base:note.position.y,phase:i,mode:'note'});
-        }
-        addCharacter(0x719d8a,0x2e3548,[-2.0,0,1.65]); addCharacter(0xb6a36d,0x4b3a2e,[1.8,0,1.65]); addCharacter(0x6f9ab0,0x342b2a,[.1,0,1.95]);
-      } else {
-        addGround(0x254c3c);
-        const arch=new THREE.TorusGeometry(3.2,.075,9,64); const gardenArch=mesh(arch,mat(0x8b9d67,.4,.3),mainGroup,[0,1.95,-1.2]);gardenArch.scale.y=1.1;
-        addClockFace(0,2.05,-2.0,false);
-        for(let i=0;i<9;i++) addClockFlower(-3.8+i*.95,1.15+(i%2)*.35,[0xd58db9,0xeabf6f,0x9bcfbe,0xc7a3e8][i%4],true);
-        mesh(new THREE.CylinderGeometry(.78,.9,.23,32),mat(0x89999b),mainGroup,[0,.14,1.5]);
-        mesh(new THREE.CylinderGeometry(.09,.16,.62,16),mat(0x73bdcb,.25,.1),mainGroup,[0,.48,1.5]);
-        for(let i=0;i<4;i++){
-          const butterfly=new THREE.Group();butterfly.position.set(-2.8+i*1.8,2.0+(i%2)*.5,-.2);mainGroup.add(butterfly);
-          mesh(new THREE.SphereGeometry(.075,8,6),mat(0x514a4b),butterfly,[0,0,0]);
-          mesh(new THREE.SphereGeometry(.16,8,6),mat(0xe6a8c1),butterfly,[-.15,.04,0],[1,.65,.12]);
-          mesh(new THREE.SphereGeometry(.16,8,6),mat(0x9fc6e7),butterfly,[.15,.04,0],[1,.65,.12]);
-          floaters.push({object:butterfly,base:butterfly.position.y,phase:i,mode:'butterfly'});
-        }
-        addCharacter(0x719d8a,0x2e3548,[-.9,0,1.65]); addCharacter(0x9b7b9b,0x77716d,[.85,0,1.65]);
+      addCylinder(.12,.16,2.5,0xe1d1a6,mainGroup,[0,1.25,-.35],10);
+      for(let i=0;i<7;i++) addLantern(-2.7+i*.9,1.1,i===3);
+      addCharacter(0xe5a36d,0x513a32,[-1.1,0,1.05]); addCharacter(0x657ed6,0x342b56,[.1,0,1.25]);
+      discoverable(addCylinder(.18,.18,2.5,0xe1d1a6,mainGroup,[0,1.25,-.35],10),'The restored channel marker','The community secures the marker and relights the harbor. The safe route is visible again.');
+    } else if (isClock && sceneIndex === 0) {
+      // Scene 1: frozen greenhouse with metal vines, shut blooms, and a stopped clock.
+      addGround(0x324b3f); addGreenhouseFrame();
+      for(let i=0;i<8;i++){const vine=mesh(new THREE.CylinderGeometry(.045,.06,2.5,7),mat(0x8d7650),mainGroup,[-3.1+i*.88,.85,-2.15]);vine.rotation.z=(i%2?-.32:.32);}
+      for(let i=0;i<6;i++) addGear(-2.6+i*1.05,2.5,-1.3,.35+(i%2)*.12,0x9b8259);
+      for(let i=0;i<6;i++){const bud=mesh(new THREE.SphereGeometry(.24,10,8),mat(0x798a76),mainGroup,[-2.7+i*1.08,.82,1.15],[.75,1.35,.75]);discoverable(bud,'A sleeping flower','The flower is closed even though it is morning. The greenhouse clock and the garden seem to have stopped together.');}
+      const face=mesh(new THREE.CircleGeometry(.7,40),mat(0xe9d8ae),mainGroup,[0,2.65,-2.75]);
+      mesh(new THREE.TorusGeometry(.75,.07,8,40),mat(0xb28b52),mainGroup,[0,2.65,-2.72]);
+      addCharacter(0x719d8a,0x2e3548,[-1.0,0,1.65]);
+      discoverable(face,'The frozen greenhouse clock','The clock points to the same minute as the night before. Something in the garden’s rhythm is missing.');
+    } else if (isClock && sceneIndex === 1) {
+      // Scene 2: hidden fountain chamber, music box, water, and visible musical notes.
+      addGround(0x34405a);
+      const pool=mesh(new THREE.CylinderGeometry(2.6,2.8,.35,48),mat(0x5b8790,.25,.25),mainGroup,[0,.05,-.15]);
+      mesh(new THREE.CylinderGeometry(2.28,2.3,.1,48),mat(0x8bc5c9,.2),mainGroup,[0,.27,-.15]);
+      const fountain=addCylinder(.35,.55,1.15,0xb8a27e,mainGroup,[0,.72,-.1]);
+      const bowl=mesh(new THREE.TorusGeometry(.8,.14,10,40),mat(0xc1a87e,.35,.3),mainGroup,[0,1.25,-.1]);
+      const box=addBox(1.35,.55,.82,0x9a6848,mainGroup,[0,.58,1.25]);
+      mesh(new THREE.CylinderGeometry(.2,.2,.75,24),mat(0xd4b66d,.3,.5),mainGroup,[0,.98,1.25]);
+      for(let i=0;i<5;i++){const n=mesh(new THREE.TorusGeometry(.12,.035,6,14),mat([0xe8c777,0xc5b2ed,0x8bd7d1][i%3]),mainGroup,[-1.5+i*.72,2.0+(i%2)*.42,-.45]);floaters.push({object:n,base:n.position.y,phase:i*.7});}
+      addGear(-2.3,1.0,-1.7,.42,0xbca06b); addGear(2.25,1.2,-1.7,.52,0x8eb7a6);
+      addCharacter(0x719d8a,0x2e3548,[-1.55,0,1.6]);
+      discoverable(box,'The music box','The box contains a tune that stops after four beats. The missing notes are remembered by the garden helpers.');
+      discoverable(bowl,'The silent fountain','The fountain’s water is still. The engraved message suggests that the garden needs every voice, not one perfect note.');
+    } else if (isClock && sceneIndex === 2) {
+      // Scene 3: reawakened garden with a flower arch, bright beds, and moving clockwork.
+      addGround(0x365848);
+      for(let i=0;i<7;i++) addFlower(-3.2+i*1.05,-1.0,[0xe18bb2,0xf2c96e,0x9bd7bf,0xb4a4ef][i%4]);
+      for(let i=0;i<7;i++) addFlower(-3.2+i*1.05,1.45,[0xf0a6a1,0xffdb8a,0x92d5d2][i%3]);
+      const arch1=addCylinder(.09,.09,3.1,0x9a8052,mainGroup,[-1.8,1.55,-1.9]);arch1.rotation.z=.22;
+      const arch2=addCylinder(.09,.09,3.1,0x9a8052,mainGroup,[1.8,1.55,-1.9]);arch2.rotation.z=-.22;
+      mesh(new THREE.TorusGeometry(1.8,.1,8,36),mat(0x9a8052),mainGroup,[0,3.0,-1.9]);
+      for(let i=0;i<4;i++) addGear(-1.5+i,2.5,-1.8,.25+(i%2)*.12,0xd8b56a);
+      const sun=mesh(new THREE.SphereGeometry(.45,16,12),new THREE.MeshStandardMaterial({color:0xffd66f,emissive:0xffa62e,emissiveIntensity:.55}),mainGroup,[0,2.05,-2.6]);
+      addCharacter(0x719d8a,0x2e3548,[-.65,0,1.35]);
+      discoverable(sun,'The garden in rhythm','The flowers open when the helpers complete the melody. The garden is alive because everyone’s part matters.');
+    } else if (isMap && sceneIndex === 0) {
+      // Scene 1: sunlit mangrove shore, tide pools, tracks, and Naya's old map.
+      addGround(0x947a58);
+      const water=mesh(new THREE.CircleGeometry(3.7,48),mat(0x2f8190,.24,.12),mainGroup,[0,-.08,-1.4]);water.rotation.x=-Math.PI/2;water.scale.set(1.25,.62,1);
+      for(let i=0;i<6;i++) addMangrove(-3.8+i*1.5,-2.1+(i%2)*.35,.85+(i%3)*.12);
+      for(let i=0;i<8;i++){const track=mesh(new THREE.SphereGeometry(.12,8,6),mat(0x594735),mainGroup,[-2.8+(i%2)*.28,.04,1.7+Math.floor(i/2)*.28],[1,.18,1]);}
+      const map=mesh(new THREE.CylinderGeometry(.42,.42,.09,32),mat(0xc8a66d),mainGroup,[1.25,.18,.95]);map.rotation.x=Math.PI/2;
+      mesh(new THREE.TorusGeometry(.32,.025,6,24),mat(0x715638),mainGroup,[1.25,.18,.95]);
+      addCharacter(0x4e82c9,0x3a2b54,[-1.15,0,1.15]);
+      addBoat(2.2,-1.1,0x8e6246);
+      discoverable(map,'The wooden map disc','Three curved lines on the disc match the bends in the inlet. Naya uses the pattern to locate a sheltered nursery.');
+    } else if (isMap && sceneIndex === 1) {
+      // Scene 2: underwater nursery with a reef, seagrass, small fish, and a young turtle.
+      addGround(0x12485c);
+      const seabed=mesh(new THREE.CircleGeometry(4.8,48),mat(0x236d73,.5),mainGroup,[0,-.1,0]);seabed.rotation.x=-Math.PI/2;seabed.scale.set(1.1,.8,1);
+      for(let i=0;i<13;i++){const x=-3.6+(i%7)*1.15,z=-1.1+Math.floor(i/7)*2.1;addCoral(x,z,[0xe88f9f,0xe2b36d,0x9a9be0,0x64c6b7][i%4]);}
+      for(let i=0;i<16;i++){const blade=mesh(new THREE.ConeGeometry(.13,.9+(i%3)*.3,5),mat(0x3b9a7e),mainGroup,[-4.0+(i%8)*1.05,.48,-2.2+Math.floor(i/8)*3.4]);blade.rotation.z=(i%2?.22:-.22);}
+      for(let i=0;i<8;i++) addFish(-3.2+(i%4)*1.8,1.0+Math.floor(i/4)*.8,-1.5+(i%3)*1.3,[0xffc66e,0x82d3d5,0xff9c98][i%3],.7+(i%2)*.2);
+      const turtle=new THREE.Group();turtle.position.set(1.25,.72,.35);mainGroup.add(turtle);
+      const shell=mesh(new THREE.SphereGeometry(.48,16,12),mat(0x4a9d79,.65),turtle,[0,0,0],[1.25,.58,1]);
+      mesh(new THREE.SphereGeometry(.2,12,10),mat(0x9ed7a7),turtle,[.48,.02,.02]);
+      for(let i=0;i<4;i++)mesh(new THREE.SphereGeometry(.18,10,8),mat(0x75b998),turtle,[(i<2?-1:1)*.38,-.13,(i%2?1:-1)*.32],[1,.45,.7]);
+      floaters.push({object:turtle,base:.72,phase:2,mode:'bubble'});
+      discoverable(shell,'The young sea turtle','The turtle is using the sheltered pool as a nursery. The surrounding mangroves and seagrass protect young sea life.');
+    } else if (isMap && sceneIndex === 2) {
+      // Scene 3: community restoration coastline, seedling mangroves, clean nursery, and sign.
+      addGround(0x607c63);
+      const lagoon=mesh(new THREE.CircleGeometry(2.5,40),mat(0x3b9aa2,.2,.1),mainGroup,[0,-.07,-.45]);lagoon.rotation.x=-Math.PI/2;lagoon.scale.set(1.2,.82,1);
+      for(let row=0;row<2;row++) for(let i=0;i<5;i++){
+        const x=-3.0+i*1.5,z=-2.2+row*3.0;
+        addCylinder(.07,.11,.85,0x846044,mainGroup,[x,.42,z],7);
+        const leaves=new THREE.Group();leaves.position.set(x,.9,z);mainGroup.add(leaves);
+        for(let k=0;k<5;k++){const leaf=mesh(new THREE.SphereGeometry(.2,8,6),mat(0x4a9c72),leaves,[Math.cos(k*1.256)*.22,Math.sin(k*1.256)*.12,Math.sin(k*1.256)*.22],[1,.35,.55]);}
       }
+      addBox(1.25,1.0,.12,0x9b744d,mainGroup,[-2.0,.9,1.55]);
+      const sign=addBox(1.08,.55,.05,0xdcc99a,mainGroup,[-2.0,1.1,1.47]);
+      addCharacter(0x4e82c9,0x3a2b54,[-.15,0,1.4]); addCharacter(0xd88d65,0x392d27,[1.0,0,1.5]);
+      for(let i=0;i<5;i++) addFish(-2.2+i*1.0,.55,-.2,[0xffd06d,0x84d5d0,0xffa5a5][i%3],.6);
+      discoverable(sign,'The community protection sign','The residents agree to protect the nursery, keep damaging nets away, and replant mangroves along the shore.');
     } else {
-      if (sceneIndex === 0) {
-        addGround(0x1b4a60);
-        const shore=mesh(new THREE.CircleGeometry(4.2,48),mat(0xd2b580),mainGroup,[0,-.06,.6]);shore.rotation.x=-Math.PI/2;shore.scale.set(1.1,.55,1);
-        const sea=mesh(new THREE.CircleGeometry(4.1,48),mat(0x257d95,.35,.15),mainGroup,[0,-.08,-1.1]);sea.rotation.x=-Math.PI/2;sea.scale.set(1.2,.65,1);
-        addMangrove(-3.5,-2.0,.7);addMangrove(3.4,-2.1,.68);
-        const map=mesh(new THREE.CylinderGeometry(.62,.62,.10,40),mat(0x9b714b),mainGroup,[-.75,.20,1.25]);map.rotation.x=Math.PI/2;
-        mesh(new THREE.TorusGeometry(.52,.035,7,36),mat(0xe0c38a),mainGroup,[-.75,.20,1.18]);
-        for(let i=0;i<3;i++){
-          const route=mesh(new THREE.TorusGeometry(.20+i*.09,.018,6,24,Math.PI*1.35),mat(0x405a55),mainGroup,[-.75,.265,1.15]);route.rotation.z=i*.45;
-        }
-        mesh(new THREE.BoxGeometry(.48,.62,.08),mat(0x536f83),mainGroup,[.85,.46,1.0]);
-        mesh(new THREE.BoxGeometry(.40,.52,.035),mat(0xf1e5c4),mainGroup,[.85,.46,.95]);
-        for(let i=0;i<7;i++) mesh(new THREE.SphereGeometry(.075,8,6),mat(0x8b795d),mainGroup,[-3.0+i*.4,.04,.65+(i%2)*.16]);
-        addCharacter(0x4e82c9,0x3a2b54,[-1.9,0,1.7]);addCharacter(0xd1a16c,0x50423b,[1.65,0,1.7]);
-        addBoat(.1,-1.8,.78);
-      } else if (sceneIndex === 1) {
-        addGround(0x0d3c56);
-        const pool=mesh(new THREE.CircleGeometry(4.5,48),mat(0x1d8293,.25,.15),mainGroup,[0,-.08,-.2]);pool.rotation.x=-Math.PI/2;pool.scale.set(1.2,.68,1);
-        for(let i=0;i<6;i++){
-          const x=-4.0+i*1.6;
-          const curve=new THREE.CatmullRomCurve3([new THREE.Vector3(x,3.0,-2.5),new THREE.Vector3(x+.35,2.2,-1.7),new THREE.Vector3(x+.55,1.4,-.6),new THREE.Vector3(x+.9,.15,.4)]);
-          mesh(new THREE.TubeGeometry(curve,20,.09,8,false),mat(0x80684b),mainGroup);
-          const canopy=mesh(new THREE.SphereGeometry(.7,12,9),mat(0x2e866e),mainGroup,[x,2.8,-2.5],[1,.48,.85]);
-          floaters.push({object:canopy,base:2.8,phase:i});
-        }
-        for(let i=0;i<14;i++) addFish(-3.4+(i%7)*1.05,.65+(Math.floor(i/7)*.75),-.8+(i%3)*.35,[0xf0b66a,0xe28d80,0x9acbd1][i%3]);
-        addTurtle(.7,1.2,.4); addCharacter(0x4e82c9,0x3a2b54,[-2.6,0,1.55]);
-        // Tangled discarded net is deliberately shown beside the nursery, not over the turtle.
-        for(let i=0;i<5;i++){
-          const strand=mesh(new THREE.CylinderGeometry(.012,.012,1.0,5),mat(0x68797b),mainGroup,[-3.5+i*.20,.55,1.2]); strand.rotation.z=(i%2?-.55:.55);
-        }
-        for(let i=0;i<12;i++){
-          const bubble=mesh(new THREE.SphereGeometry(.055+(i%3)*.018,8,6),new THREE.MeshStandardMaterial({color:0x9ce8ec,transparent:true,opacity:.5}),mainGroup,[-3.8+(i%6)*1.4,.5+Math.floor(i/6)*1.6,-1.2+(i%4)*.4]);
-          floaters.push({object:bubble,base:bubble.position.y,phase:i,mode:'bubble'});
-        }
-      } else {
-        addGround(0x285465);
-        const coastal=mesh(new THREE.CircleGeometry(4.5,48),mat(0x8aaf7a),mainGroup,[0,-.08,.65]);coastal.rotation.x=-Math.PI/2;coastal.scale.set(1.15,.65,1);
-        for(let i=0;i<8;i++) addMangrove(-3.8+i*1.08,-2.2,.55+(i%3)*.08);
-        addInfoSign(0,-1.0);
-        for(let i=0;i<5;i++){
-          const x=-3.5+i*1.65;
-          mesh(new THREE.CylinderGeometry(.05,.08,.48,8),mat(0x8e6949),mainGroup,[x,.23,.55]);
-          mesh(new THREE.BoxGeometry(.32,.16,.08),mat(0xe8d6a7),mainGroup,[x,.51,.55]);
-        }
-        for(let i=0;i<4;i++) addCharacter([0x4e82c9,0x6c9d81,0xd4a16f,0xa58bc1][i],0x3a2b54,[-2.8+i*1.8,0,1.7+(i%2)*.2]);
-        addTurtle(.9,.28,.0);
-        mesh(new THREE.CylinderGeometry(.12,.18,.22,14),mat(0x9a744b),mainGroup,[-1.0,.16,.65]);
-        mesh(new THREE.ConeGeometry(.14,.48,8),mat(0x438f63),mainGroup,[-1.0,.48,.65]);
-      }
+      // Safe visual fallback if future story data adds scenes.
+      addGround(0x263d56); addCharacter(0x9a8be8,0x342b56,[-.4,0,1]);
     }
 
     const clock = new THREE.Clock();
@@ -1105,11 +1040,7 @@ async function buildSceneWorld(story, sceneIndex) {
       for (const item of floaters) {
         if (item.mode === 'rotate') item.object.rotation.y = t * .025;
         else if (item.mode === 'gear') item.object.rotation.z = Math.sin(t*.25+item.phase)*.12 + t*.12;
-        else if (item.mode === 'clockhand') item.object.rotation.z = -t*.35;
-        else if (item.mode === 'fish') { item.object.position.y = item.base + Math.sin(t*1.1+item.phase)*.08; item.object.position.x = item.baseX + Math.sin(t*.35+item.phase)*.10; }
         else if (item.mode === 'bubble') item.object.position.y = item.base + Math.sin(t*1.2+item.phase)*.12 + Math.sin(t*.5+item.phase)*.08;
-        else if (item.mode === 'cloud') item.object.position.x = item.baseX + Math.sin(t*.16+item.phase)*.07;
-        else if (item.mode === 'lantern' || item.mode === 'butterfly' || item.mode === 'note') item.object.position.y = item.base + Math.sin(t*1.2+item.phase)*.075;
         else item.object.position.y = item.base + Math.sin(t*1.2+item.phase)*.075;
       }
       renderer.render(scene,camera);
@@ -1117,15 +1048,9 @@ async function buildSceneWorld(story, sceneIndex) {
     renderer.setAnimationLoop(animate);
     const resize = () => { if (!sceneEngine) return; const w = Math.max(280,stage.clientWidth), h = Math.max(190,stage.clientHeight); renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); };
     const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(stage);
-    sceneEngine = { THREE, renderer, scene, camera, mainGroup, interactive, floaters, resizeObserver, disposables, stage, story, sceneIndex };
+    sceneEngine = { THREE, renderer, scene, camera, mainGroup, xrGroup, interactive, floaters, resizeObserver, disposables, stage, story, sceneIndex, sceneBackgroundColor, arActive:false };
     $('#sceneStage .scene-stage-loading')?.classList.add('hidden');
-    const arViewer = $('#storyARModel');
-    const activeModelUrl = new URL(`./assets/ar/${story.slug}-scene-${sceneIndex + 1}.glb`, document.baseURI).href;
-    if (activeStory?.slug === story.slug && activeScene === sceneIndex && arViewer?.dataset.sceneSource === activeModelUrl && arViewer.loaded) {
-      updateARButtonState(true, !!arViewer.canActivateAR);
-    } else {
-      $('#xrStatus').textContent = '3D VIEW';
-    }
+    $('#xrStatus').textContent = cameraArActive ? 'LIVE CAMERA AR' : '3D PREVIEW';
     attachSceneControls(sceneEngine);
   } catch (err) {
     console.warn('Could not build 3D scene', err);
@@ -1161,114 +1086,92 @@ function attachSceneControls(engine) {
   });
   canvas.addEventListener('pointercancel',()=>down=null);
 }
-function updateARButtonState(ready, supported = false) {
+async function startCameraAR() {
+  if (cameraArActive && cameraARStream) return true;
   const button = $('#arButton');
-  if (!button) return;
-  button.disabled = !ready || !supported;
-  const xrStatus = $('#xrStatus');
-  if (xrStatus) xrStatus.textContent = ready && supported ? 'AR READY' : '3D VIEW';
-  if (!ready) {
-    button.textContent = '◌ PREPARING THIS SCENE…';
-    button.title = 'The 3D scene is loading for camera AR.';
-  } else if (supported) {
-    button.textContent = '◎ VIEW IN YOUR ROOM';
-    button.title = 'Tap once to open this scene in your room using your phone camera.';
-  } else {
-    button.textContent = 'AR NOT SUPPORTED';
-    button.title = 'You can still explore the 3D scene on this page.';
-  }
-}
-
-async function prepareStoryAR(story, sceneIndex) {
-  const viewer = $('#storyARModel');
-  if (!viewer || !story) return;
-  updateARButtonState(false, false);
-  if (window.customElements?.whenDefined) {
-    await Promise.race([customElements.whenDefined('model-viewer'), new Promise(resolve => setTimeout(resolve, 12000))]);
-  }
-  if (activeStory?.slug !== story.slug || activeScene !== sceneIndex) return;
-  if (!window.customElements?.get?.('model-viewer')) {
-    updateARButtonState(true, false);
-    $('#arViewerStatus').textContent = 'The AR viewer could not load. Check your internet connection and try again.';
-    return;
-  }
-  const modelUrl = new URL(`./assets/ar/${story.slug}-scene-${sceneIndex + 1}.glb`, document.baseURI).href;
-  if (viewer.dataset.sceneSource === modelUrl && viewer.loaded) {
-    updateARButtonState(true, !!viewer.canActivateAR);
-    return;
-  }
-  viewer.dataset.sceneSource = modelUrl;
-  $('#arViewerTitle').textContent = story.title;
-  $('#arViewerDescription').textContent = `${story.scenes[sceneIndex]?.title || story.title} — place this exact scene on a real floor or table.`;
-  $('#arViewerStatus').textContent = 'Preparing this scene for your phone…';
-  viewer.addEventListener('load', async () => {
-    if (viewer.dataset.sceneSource !== modelUrl) return;
-    // model-viewer resolves the native AR mode asynchronously after loading the GLB.
-    for (let attempt = 0; attempt < 24 && !viewer.canActivateAR; attempt++) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-    }
-    if (viewer.dataset.sceneSource !== modelUrl) return;
-    const supported = !!viewer.canActivateAR;
-    if (activeStory?.slug === story.slug && activeScene === sceneIndex) {
-      updateARButtonState(true, supported);
-      $('#arViewerStatus').textContent = supported
-        ? 'Ready. Tap VIEW IN YOUR ROOM once to open the camera AR view.'
-        : 'This browser or device does not support native camera AR. The 3D scene can still be previewed here.';
-    }
-  }, { once: true });
-  viewer.addEventListener('error', () => {
-    if (viewer.dataset.sceneSource !== modelUrl) return;
-    if (activeStory?.slug === story.slug && activeScene === sceneIndex) {
-      updateARButtonState(false, false);
-      $('#arViewerStatus').textContent = 'This scene could not load. Check your connection and try again.';
-      toast('The AR scene could not load. Check your connection and try again.', 'error');
-    }
-  }, { once: true });
-  viewer.setAttribute('src', modelUrl);
-}
-
-function closeARViewer() {
-  // Keep the current model loaded so the next VIEW IN YOUR ROOM tap can launch
-  // native AR immediately without asking the student to tap a second button.
-  hideModal('arViewerModal');
-}
-
-function launchAR() {
-  if (!activeStory) return;
-  const viewer = $('#storyARModel');
-  if (!viewer) { toast('The AR viewer is not available in this page.', 'error'); return; }
-  const expectedUrl = new URL(`./assets/ar/${activeStory.slug}-scene-${activeScene + 1}.glb`, document.baseURI).href;
-  if (viewer.dataset.sceneSource !== expectedUrl || !viewer.loaded) {
-    toast('This scene is still preparing. Please wait until VIEW IN YOUR ROOM becomes available.', 'info');
-    return;
-  }
-  if (!viewer.canActivateAR) {
-    $('#arViewerTitle').textContent = activeStory.title;
-    $('#arViewerDescription').textContent = `${activeStory.scenes[activeScene]?.title || activeStory.title} — camera AR is not supported on this device, but you can still rotate the 3D scene.`;
-    $('#arViewerStatus').textContent = 'Native camera AR is not available on this browser/device. Try Safari on iPhone or Chrome on a compatible Android phone.';
-    showModal('arViewerModal');
-    return;
+  const status = $('#xrStatus');
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    status.textContent = 'HTTPS CAMERA REQUIRED';
+    button.textContent = 'RETRY LIVE AR';
+    $('#stageHint').textContent = 'Open STORYVERSE through its secure HTTPS website to use the camera.';
+    return false;
   }
   try {
-    // This must be invoked directly from the student's tap. model-viewer then
-    // opens iOS AR Quick Look or Android Scene Viewer using the device camera.
-    const activation = viewer.activateAR();
-    if (activation && typeof activation.catch === 'function') {
-      activation.catch(error => {
-        console.warn('Native AR launch failed', error);
-        $('#arViewerTitle').textContent = activeStory?.title || 'Story scene';
-        $('#arViewerDescription').textContent = 'The camera AR view could not open on this device.';
-        $('#arViewerStatus').textContent = 'Check that camera access and AR services are enabled, then try again.';
-        showModal('arViewerModal');
-        toast('The camera AR view could not open. Check camera permission and device compatibility.', 'error');
+    button.disabled = true;
+    button.textContent = 'OPENING CAMERA…';
+    status.textContent = 'REQUESTING CAMERA';
+    const video = $('#arCamera');
+    if (!cameraARStream || cameraARStream.getTracks().every(track => track.readyState !== 'live')) {
+      const freshStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
       });
+      if ($('#storyModal').classList.contains('hidden')) {
+        freshStream.getTracks().forEach(track => track.stop());
+        return false;
+      }
+      cameraARStream = freshStream;
     }
-  } catch (error) {
-    console.warn('Native AR launch failed', error);
-    $('#arViewerStatus').textContent = 'The camera AR view could not open. Check camera permission and AR services.';
-    showModal('arViewerModal');
-    toast('The camera AR view could not open on this device.', 'error');
+    video.srcObject = cameraARStream;
+    video.muted = true;
+    video.playsInline = true;
+    await video.play();
+    cameraArActive = true;
+    $('#sceneStage').classList.add('camera-ar-active');
+    if (sceneEngine) {
+      sceneEngine.scene.background = null;
+      sceneEngine.scene.fog = null;
+      sceneEngine.renderer.setClearColor(0x000000, 0);
+      sceneEngine.mainGroup.position.set(0, -.18, 0);
+      sceneEngine.mainGroup.scale.setScalar(.78);
+    }
+    button.textContent = '◎ EXIT LIVE AR';
+    status.textContent = 'LIVE CAMERA AR';
+    $('#stageHint').textContent = 'LIVE CAMERA · Your story world is floating in your view';
+    if (activeStory) $('#nextScene').innerHTML = activeScene === activeStory.scenes.length - 1 ? 'FINISH & TAKE QUIZ <span>✦</span>' : 'NEXT AR SCENE <span>→</span>';
+    return true;
+  } catch (err) {
+    console.warn('Camera AR could not start', err);
+    cameraARStream?.getTracks().forEach(track => track.stop());
+    cameraARStream = null;
+    const video = $('#arCamera'); if (video) { video.pause(); video.srcObject = null; }
+    $('#sceneStage')?.classList.remove('camera-ar-active');
+    cameraArActive = false;
+    button.textContent = '◎ START LIVE AR';
+    status.textContent = 'CAMERA NOT STARTED';
+    $('#stageHint').textContent = err?.name === 'NotAllowedError'
+      ? 'Allow camera access in your browser, then tap START LIVE AR.'
+      : 'Camera could not start. Check browser permissions and try again.';
+    toast(err?.name === 'NotAllowedError' ? 'Camera permission is needed for the live AR story.' : 'Could not open the camera on this device.', 'error');
+    return false;
+  } finally {
+    button.disabled = false;
   }
+}
+function stopCameraAR() {
+  cameraARStream?.getTracks().forEach(track => track.stop());
+  cameraARStream = null;
+  cameraArActive = false;
+  const video = $('#arCamera');
+  if (video) { video.pause(); video.srcObject = null; }
+  $('#sceneStage')?.classList.remove('camera-ar-active');
+  const button = $('#arButton');
+  if (button) { button.disabled = false; button.textContent = '◎ START LIVE AR'; }
+  if (sceneEngine) {
+    const color = sceneEngine.sceneBackgroundColor ?? 0x17334a;
+    sceneEngine.scene.background = new sceneEngine.THREE.Color(color);
+    sceneEngine.scene.fog = new sceneEngine.THREE.FogExp2(color, .035);
+    sceneEngine.renderer.setClearColor(color, 1);
+    sceneEngine.mainGroup.position.set(0,0,0);
+    sceneEngine.mainGroup.scale.setScalar(1);
+  }
+  if ($('#xrStatus')) $('#xrStatus').textContent = '3D PREVIEW';
+  if ($('#stageHint')) $('#stageHint').textContent = 'Tap a glowing object to discover a clue';
+  if (activeStory) $('#nextScene').innerHTML = activeScene === activeStory.scenes.length - 1 ? 'FINISH & TAKE QUIZ <span>✦</span>' : 'NEXT SCENE <span>→</span>';
+}
+async function toggleCameraAR() {
+  if (cameraArActive) stopCameraAR();
+  else await startCameraAR();
 }
 
 function bindEvents() {
@@ -1297,7 +1200,7 @@ function bindEvents() {
   $('#fontDown').addEventListener('click', () => { storyFontSize = Math.max(12, storyFontSize - 1); $('#sceneText').style.fontSize = `${storyFontSize}px`; });
   $('#fontUp').addEventListener('click', () => { storyFontSize = Math.min(19, storyFontSize + 1); $('#sceneText').style.fontSize = `${storyFontSize}px`; });
   $('#objectInfoClose').addEventListener('click', () => $('#objectInfo').classList.add('hidden'));
-  $('#arButton').addEventListener('click', launchAR);
+  $('#arButton').addEventListener('click', toggleCameraAR);
   $('#quizNext').addEventListener('click', handleQuizNext);
   $('#quizBack').addEventListener('click', handleQuizBack);
   $('#storySearch').addEventListener('input', renderExplore);
@@ -1339,9 +1242,9 @@ function bindEvents() {
     const palette = event.target.closest('[data-palette]');
     if (palette) { currentUser.palette = palette.dataset.palette; renderProfile(); return; }
     const quizDone = event.target.closest('#quizDoneButton');
-    if (quizDone) { hideModal('quizModal'); showView('progress'); activeStory = null; closeStoryEngine(); return; }
+    if (quizDone) { stopCameraAR(); hideModal('quizModal'); showView('progress'); activeStory = null; closeStoryEngine(); return; }
     const close = event.target.closest('[data-close]');
-    if (close) { const id = close.dataset.close; if (id === 'scanModal') stopScanner(); if (id === 'storyModal') exitStory(); else if (id === 'arViewerModal') closeARViewer(); else hideModal(id); return; }
+    if (close) { const id = close.dataset.close; if (id === 'scanModal') stopScanner(); if (id === 'storyModal') exitStory(); else hideModal(id); return; }
   });
   document.addEventListener('click', async event => {
     if (event.target.closest('#saveProfileButton')) { await saveProfileEdits(); return; }
@@ -1352,7 +1255,6 @@ function bindEvents() {
     if (event.target === layer) {
       if (layer.id === 'scanModal') stopScanner();
       if (layer.id === 'storyModal') exitStory();
-      else if (layer.id === 'arViewerModal') closeARViewer();
       else hideModal(layer.id);
     }
   }));
@@ -1360,7 +1262,7 @@ function bindEvents() {
     if (event.key === 'Escape') {
       if (!$('#scanModal').classList.contains('hidden')) { stopScanner(); hideModal('scanModal'); }
       else if (!$('#storyModal').classList.contains('hidden')) exitStory();
-      else { closeARViewer(); $$('.modal-layer').forEach(el => el.classList.add('hidden')); }
+      else $$('.modal-layer').forEach(el => el.classList.add('hidden'));
     }
   });
 }

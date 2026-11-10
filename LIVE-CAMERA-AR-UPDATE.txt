@@ -1,0 +1,24 @@
+STORYVERSE LIVE CAMERA AR UPDATE
+
+WHAT CHANGED
+- Opening a story immediately requests camera permission and starts the rear camera on supported mobile browsers.
+- The live camera feed appears behind the Three.js story scene.
+- NEXT SCENE rebuilds the scene-specific 3D environment while keeping the camera stream running.
+- Each of the three stories has three different 3D environments (nine total).
+- The original story QR URL format (?story=story-slug) is unchanged. Existing QR codes can keep opening the same stories.
+
+INSTALL
+1. Extract this ZIP.
+2. Upload/replace all website files in your existing GitHub repository.
+3. Keep firebase-config.js and firestore.rules exactly as included; your existing Firebase values/rules are preserved from the supplied original ZIP.
+4. Commit and push. Wait for Cloudflare Pages to deploy.
+5. On each phone, open the deployed site in Safari (iPhone) or Chrome (Android). If it shows an old version, close the tab and reopen the QR link; the service worker cache version has been bumped.
+
+TEST
+- Scan an existing story QR.
+- Allow camera access when asked. The live camera should appear behind the 3D scene.
+- Tap NEXT SCENE. The camera should remain on while the 3D environment changes.
+- Repeat for all three stories on iPhone and Android.
+
+IMPORTANT LIMITATION
+This implementation is an in-page live-camera AR overlay. It overlays each 3D story diorama on the live camera image and keeps the camera open across scene changes. It does not yet use SLAM/image-target tracking to pin the model to a physical table or floor, so the scene is camera-relative rather than a persistent world-anchored object. Camera access requires HTTPS and user permission. Some mobile browsers may require a tap on START LIVE AR if automatic camera permission is blocked.

@@ -36,17 +36,16 @@
 .trend-up{color:#8fe0bd;font-size:9px;font-weight:800}.trend-down{color:#ef9ab9;font-size:9px;font-weight:800}
 .scene-stage canvas{touch-action:none}.icon-button.sound-on,.audio-control.sound-on{border-color:#8de7d4;background:#245d61;color:#d3fff2;box-shadow:0 0 14px #65d9c833}
 
-/* Cross-platform native AR model viewer */
-.ar-viewer-panel{width:min(820px,100%);padding:20px;max-height:calc(100dvh - 28px);overflow:auto}
-.ar-viewer-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
-.ar-viewer-heading h2{font:600 25px/1.15 var(--display);letter-spacing:-.04em;margin:6px 0 5px}
-.ar-viewer-heading p{margin:0;color:#aab6d4;font-size:10px;line-height:1.6;max-width:560px}
-.story-ar-model{display:block;width:100%;height:min(58vh,500px);min-height:280px;border-radius:15px;overflow:hidden;background:radial-gradient(circle at 50% 38%,#34446d 0%,#1a2444 54%,#11182f 100%);--poster-color:transparent;--progress-bar-color:#8ce3e0;--progress-bar-height:3px}
-.model-ar-button{border:1px solid rgba(255,255,255,.23);border-radius:12px;padding:13px 18px;background:linear-gradient(130deg,#7c6bf1,#4d9eaf);color:#fff;font:800 10px var(--font);letter-spacing:.08em;box-shadow:0 10px 24px #070b1f99;cursor:pointer}
-.model-progress{display:block;height:3px;width:100%;background:#ffffff1a}.model-progress span{display:block;width:35%;height:100%;background:linear-gradient(90deg,#8c7bf8,#6fd6d8);animation:model-progress 1.2s ease-in-out infinite alternate}
-@keyframes model-progress{from{transform:translateX(0)}to{transform:translateX(185%)}}
-.ar-viewer-foot{display:flex;justify-content:space-between;gap:12px;padding:12px 2px 0;color:#b9c4e0;font-size:9px;line-height:1.5}
-.ar-compat-note{margin:9px 2px 0;color:#7583a4;font-size:8px;line-height:1.6}
-@media(max-width:760px){.ar-viewer-panel{padding:14px;max-height:calc(100dvh - 18px)}.ar-viewer-heading h2{font-size:20px}.story-ar-model{height:clamp(300px,54vh,450px);min-height:260px}.ar-viewer-foot{flex-direction:column;gap:4px;font-size:8px}.model-ar-button{padding:11px 14px;font-size:9px}}
-
-.ar-button:disabled{opacity:.66;cursor:not-allowed;color:#98a4b7;border-color:#68738d44;background:#131a2dbf}.ar-button:not(:disabled){box-shadow:0 0 0 1px #8ce3e033,0 4px 18px #5ccbc522}
+/* Cross-platform live camera AR: video is the real-world background; Three.js draws each story scene above it. */
+.scene-stage .ar-camera{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;z-index:0;background:#091422}
+.scene-stage.camera-ar-active .ar-camera{display:block}
+.scene-stage canvas{position:absolute;inset:0;z-index:1;width:100%;height:100%;display:block;touch-action:none;background:transparent}
+.scene-stage .scene-stage-loading{z-index:2}
+.scene-stage .stage-overlay-top{z-index:5}
+.scene-stage .stage-hint{z-index:4;max-width:calc(100% - 20px);text-align:center;white-space:normal}
+.scene-stage .object-info{z-index:6}
+.ar-button:disabled{opacity:.65;cursor:wait}
+.scene-stage.camera-ar-active{background:#07121b}
+.scene-stage.camera-ar-active .stage-badge i{background:#61e9ae;box-shadow:0 0 10px #61e9ae}
+.scene-stage.camera-ar-active .stage-badge{color:#caffea}
+@media(max-width:760px){.scene-stage .ar-camera{object-position:center center}}
